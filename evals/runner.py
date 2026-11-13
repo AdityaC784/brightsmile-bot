@@ -36,7 +36,8 @@ from evals.judge import Verdict, judge
 from evals.retrieval_eval import recall_at_k, reciprocal_rank
 
 PIPELINE_CONCURRENCY = 1  # Groq free tier: 7k input tokens/min on the generator (~3k/answer)
-JUDGE_CONCURRENCY = 2
+CASE_TIMEOUT_S = 300  # per step; a stuck call fails its case instead of freezing the run
+JUDGE_CONCURRENCY = 1  # Groq gpt-oss-120b free tier: 8k tokens/min, ~5k per judgement
 
 
 def _git_sha() -> str | None:
@@ -62,11 +63,20 @@ async def run_case(
     }
     try:
         async with pipe_sem:
-            result: AnswerResult = await asyncio.to_thread(
-                answerer.answer, case.question, history, query=case.retrieval_query
+            result: AnswerResult = await asyncio.wait_for(
+                asyncio.to_thread(
+                    answerer.answer, case.question, history, query=case.retrieval_query
+                ),
+                CASE_TIMEOUT_S,
             )
         async with judge_sem:
-            verdict: Verdict = await asyncio.to_thread(judge, case, result)
+            verdict: Verdict = await asyncio.wait_for(
+                asyncio.to_thread(judge, case, result), CASE_TIMEOUT_S
+            )
+    except TimeoutError:
+        row.update(error=f"timed out after {CASE_TIMEOUT_S}s")
+        print(f"  {case.id} ERROR {row['error']}", flush=True)
+        return row
     except Exception as e:  # one broken case must not kill the run
         row.update(error=f"{type(e).__name__}: {str(e)[:300]}")
         print(f"  {case.id} ERROR {row['error']}", flush=True)

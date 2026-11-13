@@ -6,6 +6,9 @@ days, times, durations, conditions) appears in, or is directly implied by, its c
 Paraphrasing is fine. A claim that adds any fact not found in its cited sources is
 **unsupported**, even if the fact might be true. Courtesy phrases ("happy to help") are not facts.
 
+Every source is an official document of BrightSmile Dental Care (Aura Business Plaza, Baner
+Road, Pune). Naming the clinic, "our clinic" or "we" is never an unsupported fact.
+
 Return one JSON object:
 {"results": [{"claim": 1, "supported": true, "reason": "short reason"}, ...]}
 with exactly one entry per claim, in order.

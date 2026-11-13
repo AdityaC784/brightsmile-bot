@@ -56,7 +56,7 @@ If an adult (permanent) tooth is completely knocked out of its socket, survival 
 3. **Reinsert Gently (If Alert & Adult) OR Store in Cold Milk:**
    * If the patient is conscious, calm, and an adult, gently place the tooth back into the socket facing the right direction and bite softly on a clean handkerchief.
    * If reinsertion is not possible (or for children), immediately submerge the tooth in a clean cup of **cold pasteurized milk** or sterile saline (or inside the patient's cheek pouch if alert and old enough not to swallow it). **Never store the tooth dry or in plain tap water.**
-4. **Immediate Clinic Arrival:** Call **`+91-20-5550-0140`** while en route to Aura Business Plaza, Baner Road (`DENT-003`) for **`WLK-T1`** trauma stabilization. *(Note: Knocked-out baby/primary teeth in young children must **not** be reinserted, as reinsertion can damage the developing permanent tooth bud underneath.)*
+4. **Immediate Clinic Arrival:** During clinic hours (Monday–Saturday, 09:30 AM – 08:30 PM), call **`+91-20-5550-0140`** while en route to Aura Business Plaza, Baner Road (`DENT-003`) for **`WLK-T1`** trauma stabilization. On Sundays, gazetted holidays, or after clinic hours, go directly to a hospital dental emergency department (e.g. Jupiter Hospital, Baner) — do not wait for the clinic to reopen. *(Note: Knocked-out baby/primary teeth in young children must **not** be reinserted, as reinsertion can damage the developing permanent tooth bud underneath.)*
 
 ---
 

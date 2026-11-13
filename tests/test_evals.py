@@ -59,3 +59,19 @@ def test_cohen_kappa():
     assert cohen_kappa([True, False, True, False], [True, False, True, False]) == 1.0
     assert cohen_kappa([True, True, False, False], [True, False, True, False]) == 0.0
     assert cohen_kappa([], []) is None
+
+
+def test_judge_correct_is_computed_from_checklist():
+    from evals.judge import ExcludeCheck, IncludeCheck, KeyFact, Verdict
+
+    ok = Verdict(key_facts=[KeyFact(fact="₹1,800", present=True)], behavior_ok=True, faithful=True)
+    assert ok.correct
+    assert not ok.model_copy(update={"contradictions": ["says alone"]}).correct
+    assert not ok.model_copy(update={"key_facts": [KeyFact(fact="x", present=False)]}).correct
+    assert not ok.model_copy(
+        update={"must_include": [IncludeCheck(item="roster days", satisfied=False)]}
+    ).correct
+    assert not ok.model_copy(
+        update={"must_not_include": [ExcludeCheck(item="any ₹ price", violated=True)]}
+    ).correct
+    assert ok.model_dump()["correct"] is True  # serialised for the runner / agreement tool

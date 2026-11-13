@@ -47,7 +47,7 @@ Clinical protocols, infection-control audits, and complex multidisciplinary trea
 ### 3.1 Dr. Aarav Deshmukh (`STF-001`) — Founder & Chief Endodontist
 * **Academic Qualifications:** BDS, MDS (Conservative Dentistry & Endodontics)
 * **Registration Number:** `MH-DCI-10482`
-* **Regular Clinic Days:** Monday through Saturday (09:30 AM – 01:30 PM and 02:30 PM – 08:30 PM)
+* **Regular Clinic Days:** Monday through Saturday (typical chairside window 10:00 AM – 01:30 PM and 03:00 PM – 08:00 PM)
 * **Primary Operatory:** Operatory 1 (`OP-01` — Endodontic & Micro-restorative Suite)
 * **Clinical Scope & Responsibilities:**
   * Performs anterior, premolar (`SRV-005`), and complex multi-canal molar root canal treatments (`SRV-005A`) utilizing a Carl Zeiss dental operating microscope, electronic apex locator, and rotary endomotor systems (`DENT-014`).
@@ -57,7 +57,7 @@ Clinical protocols, infection-control audits, and complex multidisciplinary trea
 ### 3.2 Dr. Meera Kulkarni (`STF-002`) — Senior Consultant Orthodontist
 * **Academic Qualifications:** BDS, MDS (Orthodontics & Dentofacial Orthopaedics)
 * **Registration Number:** `MH-DCI-11934`
-* **Regular Clinic Days:** Tuesday, Thursday, and Saturday (09:30 AM – 01:30 PM and 02:30 PM – 08:30 PM)
+* **Regular Clinic Days:** Tuesday, Thursday, and Saturday (typical chairside window 11:00 AM – 01:30 PM and 03:30 PM – 08:00 PM)
 * **Primary Operatory:** Operatory 3 (`OP-03` — Orthodontics & General Dentistry Suite)
 * **Clinical Scope & Responsibilities:**
   * Conducts comprehensive orthodontic evaluations, digital 3D intraoral optical scans using the iTero scanner (`EQP-003`), and cephalometric/OPG treatment planning (`DENT-017`).
@@ -67,7 +67,7 @@ Clinical protocols, infection-control audits, and complex multidisciplinary trea
 ### 3.3 Dr. Rohan Joshi (`STF-003`) — Consultant Oral Surgeon
 * **Academic Qualifications:** BDS, MDS (Oral & Maxillofacial Surgery)
 * **Registration Number:** `MH-DCI-12710`
-* **Regular Clinic Days:** Monday, Wednesday, Friday, and Saturday (09:30 AM – 01:30 PM and 02:30 PM – 08:30 PM)
+* **Regular Clinic Days:** Monday, Wednesday, Friday, and Saturday (typical chairside window 10:30 AM – 01:30 PM and 04:00 PM – 08:00 PM)
 * **Primary Operatory:** Operatory 2 (`OP-02` — Oral Surgery & Implant Suite)
 * **Clinical Scope & Responsibilities:**
   * Performs surgical extractions of impacted wisdom teeth (`SRV-007A`) and complex multi-rooted extractions (`DENT-016`) using ultrasonic piezotome bone-surgery instrumentation (`EQP-002`).
@@ -78,7 +78,7 @@ Clinical protocols, infection-control audits, and complex multidisciplinary trea
 * **Academic Qualifications:** BDS, MDS (Paediatric & Preventive Dentistry)
 * **Registration Number:** `MH-DCI-13509`
 * **Regular Clinic Days:**
-  * Monday, Wednesday, and Friday: Full clinical day (09:30 AM – 01:30 PM and 02:30 PM – 08:30 PM)
+  * Monday, Wednesday, and Friday: 09:30 AM – 01:30 PM and 04:00 PM – 07:30 PM
   * Saturday: **Morning Session only (09:30 AM – 01:30 PM)**
 * **Primary Operatory:** Operatory 4 (`OP-04` — Paediatric & Preventive Hygiene Suite)
 * **Clinical Scope & Responsibilities:**

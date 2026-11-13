@@ -70,6 +70,7 @@ def export(run: str) -> int:
                 "bot_reply": r["answer"],
                 "human_correct": keep["human_correct"] if keep else None,
                 "human_note": keep.get("human_note", "") if keep else "",
+                "labeler": keep.get("labeler", "human") if keep else "human",
             }
         )
     LABELS.parent.mkdir(parents=True, exist_ok=True)
@@ -107,7 +108,10 @@ def score(run: str) -> int:
     judge = [j for _, _, j, _ in pairs]
     agree = sum(h == j for h, j in zip(human, judge, strict=True))
     kappa = cohen_kappa(human, judge)
-    print(f"Judge vs human on {len(pairs)} labelled replies:")
+    labelers = sorted({labels[i].get("labeler", "human") for i, _, _, _ in pairs})
+    print(f"Judge vs labels ({', '.join(labelers)}) on {len(pairs)} replies:")
+    if labelers != ["human"]:
+        print("  NOTE: not all labels are human; this is not a human-validated judge.")
     print(f"  agreement      {agree}/{len(pairs)} = {agree / len(pairs):.2f}")
     print(f"  Cohen's kappa  {kappa:.2f}" if kappa is not None else "  Cohen's kappa  -")
     print(

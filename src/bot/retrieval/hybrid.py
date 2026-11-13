@@ -1,7 +1,8 @@
 """Hybrid retrieval: Postgres full-text + pgvector HNSW, fused with Reciprocal Rank Fusion.
 
 Modes (configs/retrieval.yaml -> search.mode, or per call):
-  hybrid  — RRF over both lists; FULL OUTER JOIN keeps hits found by only one side
+  hybrid  — weighted RRF over both lists (search.lexical_weight); FULL OUTER JOIN keeps
+            hits found by only one side
   lexical — full-text only (ts_rank_cd; NOT true BM25)
   dense   — vector only (cosine distance)
 
@@ -65,7 +66,7 @@ semantic AS (
     LIMIT %(n)s
 )
 SELECT c.id, c.doc_id, c.source_doc_id, c.title, c.section, c.content, c.status,
-       (coalesce(1.0 / (%(k)s + l.rank), 0.0) + coalesce(1.0 / (%(k)s + s.rank), 0.0))
+       (%(w_lex)s * coalesce(1.0 / (%(k)s + l.rank), 0.0) + coalesce(1.0 / (%(k)s + s.rank), 0.0))
          * CASE WHEN c.status = 'archived' THEN %(penalty)s ELSE 1.0 END AS score,
        l.rank AS lexical_rank, s.rank AS dense_rank
 FROM lexical l
@@ -95,6 +96,7 @@ class HybridRetriever:
         mode: Mode | None = None,
         top_k: int | None = None,
         chunker: str | None = None,
+        lexical_weight: float | None = None,
     ) -> list[Hit]:
         s = self.cfg["search"]
         mode = mode or s["mode"]
@@ -112,6 +114,8 @@ class HybridRetriever:
             "chunker": chunker or self.cfg["chunking"]["strategy"],
             "n": s["candidates_per_list"],
             "k": s["rrf_k"],
+            # Weighted RRF: the full-text list counts this much relative to the dense list.
+            "w_lex": s.get("lexical_weight", 1.0) if lexical_weight is None else lexical_weight,
             "penalty": s["archived_penalty"],
             "top_k": top_k or s["top_k"],
         }

@@ -116,3 +116,14 @@ def test_lexical_search_finds_exact_identifier():
     hits = HybridRetriever().search("SRV-005A", mode="lexical", top_k=5)
     assert hits and hits[0].source_doc_id == "DENT-014"
     assert all(h.lexical_rank is not None and h.dense_rank is None for h in hits)
+
+
+def test_daily_quota_errors_are_not_retried():
+    from bot.llm.providers import is_daily_quota
+
+    tpd = _StatusErr(429)
+    tpd.args = ("Rate limit reached ... on tokens per day (TPD): Limit 200000",)
+    assert is_daily_quota(tpd) and not is_retryable(tpd)
+    tpm = _StatusErr(429)
+    tpm.args = ("Rate limit reached ... on tokens per minute (TPM): Limit 8000",)
+    assert not is_daily_quota(tpm) and is_retryable(tpm)

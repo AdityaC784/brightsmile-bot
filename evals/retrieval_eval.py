@@ -45,7 +45,7 @@ def _mean(xs: list[float]) -> float:
     return sum(xs) / len(xs) if xs else 0.0
 
 
-def run(cases: list[GoldenCase]) -> dict:
+def run(cases: list[GoldenCase], lexical_weight: float | None = None) -> dict:
     retriever = HybridRetriever()
     scored = [c for c in cases if c.gold_doc_ids]
     per_case: list[dict] = []
@@ -53,7 +53,11 @@ def run(cases: list[GoldenCase]) -> dict:
         for chunker in CHUNKERS:
             for mode in MODES:
                 hits = retriever.search(
-                    c.retrieval_query, mode=mode, chunker=chunker, top_k=MRR_DEPTH
+                    c.retrieval_query,
+                    mode=mode,
+                    chunker=chunker,
+                    top_k=MRR_DEPTH,
+                    lexical_weight=lexical_weight,
                 )
                 docs = [h.source_doc_id for h in hits]
                 per_case.append(
@@ -124,13 +128,16 @@ def main() -> int:
     ap.add_argument("--split", choices=["dev", "holdout", "all"], default="dev")
     ap.add_argument("--out", default="evals/runs/retrieval_latest.json")
     ap.add_argument("--show-misses", action="store_true")
+    ap.add_argument(
+        "--lexical-weight", type=float, default=None, help="override search.lexical_weight"
+    )
     a = ap.parse_args()
 
     cases = load_golden()
     if a.split != "all":
         cases = [c for c in cases if c.split == a.split]
     t0 = time.perf_counter()
-    result = run(cases)
+    result = run(cases, a.lexical_weight)
     splits = ["dev", "holdout"] if a.split == "all" else [a.split]
     summaries = {s: summarize(result["per_case"], s) for s in splits}
 

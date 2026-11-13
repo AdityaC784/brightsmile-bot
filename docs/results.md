@@ -47,40 +47,101 @@ recall@5 by type (heading chunker):
    (q-021, q-024, q-029). Open question: should those gold labels include DENT-036 at all, or
    should the abstention rules live in the system prompt instead of per-question retrieval?
 
-**Next experiments**: row-level tariff chunks; revisit DENT-036 gold labels; lexical weight
-or query-term filtering in RRF; archived-penalty sweep.
+### 1b. Follow-up experiments (2026-11-13, dev split, heading chunks)
+
+| change | hybrid recall@5 / MRR | verdict |
+|---|---|---|
+| baseline (equal-weight RRF) | 0.76 / 0.78 | — |
+| one chunk per row for tables ≥ 5 rows | 0.79 / 0.68 | **rejected**: MRR drops, target cases not fixed |
+| weighted RRF, lexical weight 0.7 | 0.83 / 0.78 | |
+| weighted RRF, lexical weight 0.5 | 0.86 / 0.78 | |
+| **weighted RRF, lexical weight 0.3** | **0.88 / 0.79** | **adopted** |
+| weighted RRF, lexical weight 0.15 | 0.90 / 0.80 | not chosen (over-fit risk on 21 cases) |
+| dense only | 0.88 / 0.80 | loses exact IDs (ranks EQP-005 first for "SRV-005A") |
+
+- Row chunking was based on a wrong diagnosis: the tariff wasn't diluted. Service pages repeat
+  the same prices and out-compete it. The option stays in code (`table_row_min_rows: 0`).
+- The real problem was equal-weight fusion: dense ranked the missing gold docs #1–#2 (DENT-024
+  for q-016, DENT-019 for q-018) while common words in the full-text list pushed them to #12–#15.
+- Exact-ID cases keep reciprocal rank 1.0 at every weight tried.
+- After also removing DENT-036 from three gold labels (golden 0.3.0: abstention rules live in
+  the system prompt), dev recall@5 / MRR = **0.93 / 0.82** (dense 0.95 / 0.83).
 
 ## 2. End-to-end answers (2026-11-13)
 
-`make eval` · golden 0.2.0 · dev split, 24 cases · generator `qwen/qwen3.8-27b` (Groq) ·
-verifier `openai/gpt-oss-20b` · judge `gemini-3.5-flash-lite` (temperature 0) · hybrid
-retrieval, heading chunks, top-6 · citation verification on (min support 1.0).
+`make eval` · golden 0.3.0 · dev split, 24 cases · generator `qwen/qwen3.8-27b` · verifier
+`openai/gpt-oss-20b` · judge `openai/gpt-oss-120b` (temperature 0, checklist grading) · hybrid
+retrieval (lexical weight 0.3), heading chunks, top-6 · citation verification on.
 
-| metric | value |
-|---|---|
-| answer correctness | 0.92 (22/24) |
-| behaviour accuracy | 0.96 |
-| faithfulness | 1.00 |
-| citation accuracy | 0.96 (50 claims) |
-| abstention precision / recall | 0.80 / 1.00 |
-| safety pass rate | 1.00 (4/4) |
+| metric | judge | hand labels |
+|---|---|---|
+| answer correctness | 0.79 (19/24) | **0.83 (20/24)** |
+| behaviour accuracy | 0.96 | |
+| faithfulness | 1.00 | |
+| citation accuracy (verifier) | 1.00 (44 claims) | |
+| abstention precision / recall | 1.00 / 1.00 | |
+| retrieval recall@5 / MRR | 0.93 / 0.82 | |
 
-**Both failures are retrieval misses, not generation errors**
-- q-016 (refund calculation): DENT-024 (REF-03) is never retrieved, so the bot can only
-  compute the ₹4,750 lab fee, not the full ₹12,750.
-- q-018 (insurance + root canal price): DENT-019 is not retrieved; the bot cites the wrong
-  source for SRV-005A and the deterministic check correctly replaces the reply with the fallback.
+**Judge validation** (`make judge-score`, 24 hand-labelled replies): agreement 0.88, Cohen's
+kappa **0.59** (moderate). The judge is slightly stricter than the labels. History: gemini
+flash-lite with a holistic grade, kappa 0.36 (it passed a factual error and a missing required
+fact); checklist grading with `correct` computed in code plus gpt-oss-120b, kappa 0.59.
 
-**Caveats — read before quoting these numbers**
-- The judge is **not yet validated** against human labels (`make judge-export` / `judge-score`).
-  Until then, correctness is the judge's opinion.
-- n = 24. One case = ~0.04. Noise across repeated uncached runs is not yet measured.
-- Follow-ups use the oracle standalone question (no rewriter yet).
-- Judge choice was forced by quota: `gemini-3.6-flash` free tier = 20 requests/day.
+**Real failures (hand labels)**
+- q-016: gives only the ₹4,750 lab fee; the full loss is ₹12,750 (REF-03 + REF-04). DENT-024 is now
+  retrieved, so this is a multi-step reasoning gap in the generator.
+- q-020: **factual error** that the verifier and judge both missed. Says 14–17-year-olds may
+  attend orthodontic adjustments "alone"; DENT-029 requires an authorised adult.
+- q-021: declines correctly but omits Dr. Joshi's roster days.
+- q-009: first aid correct, but no Sunday/after-hours route (hospital dental emergency).
 
-**Fixes found by running the eval** (each was a real bug, not tuning):
-verifier dropped results counted as "unsupported" (3 false fallbacks); Groq JSON-mode 400s not
-retried; Groq 429s needing the Retry-After wait; correct refusals counted against abstention
-precision; the judge was shown the bot's own behaviour label and graded the label instead of the
-reply; emergency replies that failed verification fell back to "call reception" — now a fixed,
-KB-sourced emergency message.
+**KB inconsistencies found** (they cause the remaining judge/label disagreements):
+- Emergency hospital: DENT-031/032 say "Jupiter Hospital Baner or **Ruby Hall Clinic**";
+  DENT-035/036/002 say "Jupiter or **Manipal Hospital Baner**".
+- Specialist hours: DENT-004 roster (09:30–01:30 & 02:30–08:30) vs DENT-002 §4 "typical
+  chairside window" (e.g. orthodontist 11:00–01:30 & 03:30–08:00).
+
+**Caveats**: n = 24 (one case ≈ 0.04); uncached run-to-run noise not yet measured; follow-ups
+use the oracle standalone question (no rewriter yet); holdout not run.
+
+**Bugs found by running the eval** (fixed; none were tuning): verifier results dropped and
+counted as unsupported; verifier rejected naming the clinic as "unsupported"; Groq JSON-mode 400s
+and 429s not retried properly; Gemini's retry delay ignored; correct refusals counted against
+abstention precision; the judge saw the bot's behaviour label; the judge's skipped-item safeguard
+re-added reworded items as failures; emergency replies that failed verification fell back to
+"call reception" (now a fixed KB-sourced emergency message with first aid); concurrent eval runs
+overwrote each other's output.
+
+### 2b. After KB consistency fixes and prompt rules (2026-11-13)
+
+golden 0.4.0 · kb `a95b83a663a9` · same models and retrieval as §2.
+
+| metric | judge | hand labels |
+|---|---|---|
+| answer correctness | 0.92 (22/24) | **0.92 (22/24)** |
+| faithfulness | 1.00 | |
+| citation accuracy (verifier) | 0.95 (44 claims) | |
+| abstention precision / recall | 0.80 / 1.00 | |
+| safety pass rate | 1.00 | |
+| retrieval recall@5 / MRR | 0.93 / 0.82 | |
+
+Judge vs hand labels: 24/24 agreement (kappa 1.00). Caveat: on q-020 the judge failed the reply
+for asking the child's age, not for its factual error, so the verdict matched for the wrong
+reason. With n = 24, treat kappa 1.00 as "no disagreements on this run", not as a perfect judge.
+
+**What changed and what it fixed**
+- KB: Ruby Hall → Manipal in DENT-031/032 (q-029 fixed); DENT-004 hours aligned with DENT-002 §4
+  (q-004 consistent); DENT-035 §3 now states the closed-clinic route for a knocked-out tooth.
+- Prompt rules: emergency routing for closed hours (q-009 fixed); give the clinician's days when a
+  slot can't be confirmed (q-021 fixed); keep conditions exact; show multi-rule calculations.
+
+**Still failing**
+- q-020: says 14–17-year-olds may attend orthodontic adjustments "alone"; DENT-029 requires an
+  authorised adult. The prompt rule did not fix it and the verifier (gpt-oss-20b) passes the claim.
+- q-016: the model now attempts the REF-03 + REF-04 calculation but cites the ₹9,500 crown price
+  from a source that lacks it; the deterministic price check correctly replaces the reply with
+  the fallback (safe, but unhelpful).
+
+**Free-tier daily limits hit during this round** (Groq, per key, per model): 200k tokens/day,
+about 55 generator answers or about 45 judge calls. Daily-quota errors now fail fast instead of
+retrying, and each case has a 5-minute timeout.

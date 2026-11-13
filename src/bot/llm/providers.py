@@ -8,6 +8,7 @@ in configs/models.yaml, e.g. a second Groq key so the generator has its own rate
 from __future__ import annotations
 
 import random
+import re
 import time
 
 from tenacity import RetryCallState, wait_exponential_jitter
@@ -20,7 +21,16 @@ RETRYABLE_STATUS = {408, 409, 429, 500, 502, 503, 504}
 REQUEST_TIMEOUT_S = 60
 
 
+def is_daily_quota(exc: BaseException) -> bool:
+    """Daily quotas (Groq 'tokens per day (TPD)', Gemini 'requests per day') don't clear in
+    seconds; retrying only stalls the caller for many minutes."""
+    msg = str(exc).lower()
+    return "(tpd)" in msg or "per day" in msg or "perday" in msg
+
+
 def is_retryable(exc: BaseException) -> bool:
+    if is_daily_quota(exc):
+        return False
     status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
     if isinstance(status, int):
         return status in RETRYABLE_STATUS
@@ -30,6 +40,7 @@ def is_retryable(exc: BaseException) -> bool:
 
 
 _backoff = wait_exponential_jitter(initial=1, max=30)
+_RETRY_IN = re.compile(r"(?:retry in|retryDelay'?:\s*'?)\s*([\d.]+)\s*s", re.IGNORECASE)
 
 
 def wait_retry_after(retry_state: RetryCallState) -> float:
@@ -39,9 +50,14 @@ def wait_retry_after(retry_state: RetryCallState) -> float:
     exc = retry_state.outcome.exception() if retry_state.outcome else None
     response = getattr(exc, "response", None)
     headers = getattr(response, "headers", None) or {}
+    seconds: float | None = None
     try:
         seconds = float(headers.get("retry-after", ""))
     except (TypeError, ValueError):
+        # Gemini puts the delay in the error body: "Please retry in 22.47s" / "retryDelay': '22s'".
+        m = _RETRY_IN.search(str(exc))
+        seconds = float(m.group(1)) if m else None
+    if seconds is None:
         return _backoff(retry_state)
     return min(seconds + random.uniform(0.2, 1.5), 90.0)
 
