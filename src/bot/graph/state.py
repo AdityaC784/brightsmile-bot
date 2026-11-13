@@ -20,6 +20,11 @@ class Reply(TypedDict, total=False):
     confidence: float | None
     fallback_reason: str | None
     repaired: bool
+    retrieved_ids: list[str]
+    verifier: dict | None
+    latency_ms: int
+    tokens_in: int
+    tokens_out: int
 
 
 LeadStage = Literal["collecting", "awaiting_consent", "saved", "declined"]

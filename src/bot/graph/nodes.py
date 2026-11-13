@@ -132,6 +132,7 @@ class Nodes:
         r = self.answerer.answer(
             state["question"], history, query=state.get("standalone") or state["question"]
         )
+        v = getattr(r, "verification", None)
         reply = {
             "behavior": r.behavior,
             "answer": r.answer,
@@ -139,6 +140,12 @@ class Nodes:
             "confidence": r.confidence,
             "fallback_reason": r.fallback_reason,
             "repaired": r.repaired,
+            # Per-turn metrics for logging (plan §3: latency, tokens, retrieval ids, verifier).
+            "retrieved_ids": [h.doc_id for h in getattr(r, "hits", [])],
+            "verifier": {"claims": v.n_claims, "supported": v.n_supported} if v else None,
+            "latency_ms": getattr(r, "latency_ms", 0),
+            "tokens_in": getattr(r, "tokens_in", 0),
+            "tokens_out": getattr(r, "tokens_out", 0),
         }
         return {"reply": reply, "messages": [Turn(role="assistant", content=r.answer)]}
 
