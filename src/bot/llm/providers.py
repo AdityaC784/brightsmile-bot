@@ -7,7 +7,10 @@ in configs/models.yaml, e.g. a second Groq key so the generator has its own rate
 
 from __future__ import annotations
 
+import random
 import time
+
+from tenacity import RetryCallState, wait_exponential_jitter
 
 from bot.config import get_settings
 from bot.llm.base import ChatRequest, ChatResponse, LLMError
@@ -24,6 +27,23 @@ def is_retryable(exc: BaseException) -> bool:
     # No status => network/connection-level failure.
     name = type(exc).__name__.lower()
     return "connection" in name or "timeout" in name
+
+
+_backoff = wait_exponential_jitter(initial=1, max=30)
+
+
+def wait_retry_after(retry_state: RetryCallState) -> float:
+    """Honour the provider's Retry-After header (Groq sends it on 429s), else back off
+    exponentially. Groq's token-per-minute limits often need ~10-60 s, longer than a blind
+    backoff would wait."""
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None) or {}
+    try:
+        seconds = float(headers.get("retry-after", ""))
+    except (TypeError, ValueError):
+        return _backoff(retry_state)
+    return min(seconds + random.uniform(0.2, 1.5), 90.0)
 
 
 def _require(key: str, env_name: str) -> str:
@@ -52,12 +72,20 @@ class GroqProvider:
         if req.json_mode:
             kwargs["response_format"] = {"type": "json_object"}
         t0 = time.perf_counter()
-        resp = self._client.chat.completions.create(
-            model=req.model,
-            messages=messages,
-            max_completion_tokens=req.max_tokens,
-            **kwargs,
-        )
+        try:
+            resp = self._client.chat.completions.create(
+                model=req.model, messages=messages, max_completion_tokens=req.max_tokens, **kwargs
+            )
+        except Exception as e:
+            # Groq rejects JSON-mode outputs that fail its own JSON validation with a 400
+            # (`json_validate_failed`). Retry once without JSON mode; the caller's prompt still
+            # asks for JSON and chat_json extracts/repairs it.
+            if not (req.json_mode and "json_validate_failed" in str(e)):
+                raise
+            kwargs.pop("response_format", None)
+            resp = self._client.chat.completions.create(
+                model=req.model, messages=messages, max_completion_tokens=req.max_tokens, **kwargs
+            )
         choice = resp.choices[0]
         usage = resp.usage
         return ChatResponse(

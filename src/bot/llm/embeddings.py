@@ -11,12 +11,12 @@ import time
 from typing import Literal
 
 import structlog
-from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry, retry_if_exception, stop_after_attempt
 
 from bot.config import get_settings, load_yaml
 from bot.llm.base import LLMError
 from bot.llm.cache import DiskCache, request_key
-from bot.llm.providers import gemini_client, is_retryable
+from bot.llm.providers import gemini_client, is_retryable, wait_retry_after
 
 log = structlog.get_logger(__name__)
 Task = Literal["RETRIEVAL_DOCUMENT", "RETRIEVAL_QUERY"]
@@ -50,7 +50,7 @@ class Embedder:
     @retry(
         retry=retry_if_exception(is_retryable),
         stop=stop_after_attempt(6),
-        wait=wait_exponential_jitter(initial=2, max=60),
+        wait=wait_retry_after,
         reraise=True,
     )
     def _embed_batch(self, texts: list[str], task: Task) -> list[list[float]]:

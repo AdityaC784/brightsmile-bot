@@ -1,0 +1,33 @@
+# Answer generation, abstention and citation verification (read by src/bot/rag/).
+
+# Facts the bot may always use for hand-offs. Copied verbatim from the KB
+# (DENT-001 institutional table, DENT-006 booking channels, DENT-035 emergency directory).
+clinic:
+  name: BrightSmile Dental Care
+  reception: "+91-20-5550-0140 (phone & WhatsApp, Mon–Sat 09:30 AM – 08:30 PM IST)"
+  booking_url: https://brightsmile.example/book
+  after_hours_triage: "+91-20-5550-0199"
+  emergency: "112 / 108, or Jupiter Hospital Baner / Manipal Hospital Baner"
+
+# Shown when the bot can't stand behind an answer (low retrieval score or failed verification).
+fallback_answer: >-
+  I'm not able to confirm that from BrightSmile Dental Care's official information, so I don't
+  want to guess. Our reception team can help: call or WhatsApp +91-20-5550-0140
+  (Mon–Sat, 09:30 AM – 08:30 PM IST) or book at https://brightsmile.example/book.
+
+# Fallback for emergency (handoff) replies that fail verification: never downgrade an emergency
+# to "call reception during office hours". Facts from DENT-035 §5 / DENT-002 §6 / DENT-036 §3.
+emergency_fallback_answer: >-
+  This may be an emergency. If you have rapidly spreading facial or neck swelling, difficulty
+  breathing or swallowing, a fever above 101°F with swelling, or dizziness or fainting, call 112
+  (or 108 for an ambulance) or go straight to Jupiter Hospital, Baner or Manipal Hospital, Baner.
+  For bleeding that hasn't stopped after 45 minutes of firm gauze pressure, or a knocked-out
+  tooth, call BrightSmile Dental Care on +91-20-5550-0140 (Mon–Sat, 09:30 AM – 08:30 PM) or the
+  after-hours triage line +91-20-5550-0199 (08:30 PM – 10:30 PM Mon–Sat, 10:00 AM – 06:00 PM Sun).
+
+verification:
+  # Experiment switch (plan §7: with vs without citation verification).
+  enabled: true
+  # Fraction of cited claims that must be supported; below this the answer is replaced by the
+  # fallback. 1.0 = any unsupported claim triggers the fallback.
+  min_support_ratio: 1.0

@@ -17,17 +17,12 @@ from typing import TypeVar
 
 import structlog
 from pydantic import BaseModel, ValidationError
-from tenacity import (
-    retry,
-    retry_if_exception,
-    stop_after_attempt,
-    wait_exponential_jitter,
-)
+from tenacity import retry, retry_if_exception, stop_after_attempt
 
 from bot.config import get_settings, load_yaml
 from bot.llm.base import ChatProvider, ChatRequest, ChatResponse, LLMError, Message
 from bot.llm.cache import DiskCache, request_key
-from bot.llm.providers import PROVIDERS, is_retryable
+from bot.llm.providers import PROVIDERS, is_retryable, wait_retry_after
 
 log = structlog.get_logger(__name__)
 T = TypeVar("T", bound=BaseModel)
@@ -107,8 +102,8 @@ class LLM:
 
     @retry(
         retry=retry_if_exception(is_retryable),
-        stop=stop_after_attempt(4),
-        wait=wait_exponential_jitter(initial=1, max=20),
+        stop=stop_after_attempt(8),
+        wait=wait_retry_after,
         reraise=True,
     )
     def _call(self, req: ChatRequest) -> ChatResponse:

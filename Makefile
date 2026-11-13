@@ -3,7 +3,7 @@
 
 PY := uv run python -m
 
-.PHONY: setup db-up db-down migrate ingest search eval-retrieval eval eval-ci eval-baseline review serve test lint fmt
+.PHONY: setup db-up db-down migrate ingest search eval-retrieval eval eval-ci eval-baseline judge-export judge-score review serve test lint fmt
 
 setup:          ## install deps + git hooks
 	uv sync
@@ -35,6 +35,12 @@ eval-ci:        ## eval used by the CI gate
 
 eval-baseline:  ## deliberately refresh the baseline (commit it in its own PR)
 	$(PY) evals.runner --split all --out evals/baseline.json
+
+judge-export:   ## write a labelling sheet from the latest eval run (validate the judge)
+	$(PY) evals.judge_agreement export
+
+judge-score:    ## judge vs your labels: agreement + Cohen's kappa
+	$(PY) evals.judge_agreement score
 
 review:         ## review feedback candidates -> golden set
 	$(PY) evals.review_cli

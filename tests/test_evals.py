@@ -51,3 +51,11 @@ def test_abstain_and_refuse_cases_have_forbidden_content_listed():
     for c in load_golden():
         if c.expected_behavior in ("abstain", "refuse"):
             assert c.must_include and c.must_not_include, c.id
+
+
+def test_cohen_kappa():
+    from evals.judge_agreement import cohen_kappa
+
+    assert cohen_kappa([True, False, True, False], [True, False, True, False]) == 1.0
+    assert cohen_kappa([True, True, False, False], [True, False, True, False]) == 0.0
+    assert cohen_kappa([], []) is None

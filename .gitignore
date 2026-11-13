@@ -9,5 +9,6 @@ dist/
 build/
 *.egg-info/
 evals/runs/*.json
+evals/runs/*.md
 !evals/runs/.gitkeep
 comment.md

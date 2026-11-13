@@ -16,20 +16,24 @@ roles:
     temperature: 0
 
   # Cheap/fast utility calls: intent classification, follow-up question rewriting, slot extraction.
+  # gpt-oss is a reasoning model: hidden reasoning tokens count toward max_tokens, so keep
+  # reasoning_effort low and leave headroom (verifier replies list one result per claim).
   utility:
     provider: groq
     model: openai/gpt-oss-20b
-    max_tokens: 512
+    max_tokens: 1024
     temperature: 0
+    reasoning_effort: low
 
   # Eval judge — deliberately a different model family than the generator
-  # (reduces self-preference bias). Temperature 0. Pinned (verified 2026-11-13):
-  # `gemini-flash-latest` 404s, 2.5-flash is retired for new keys, 3.7/3.8-flash were
-  # returning 503/504 under load. Fallback if 3.6 is overloaded: gemini-3.5-flash-lite.
-  # Thinking tokens count toward the output budget, hence the larger max_tokens.
+  # (reduces self-preference bias). Temperature 0. Verified 2026-11-13:
+  # `gemini-flash-latest` 404s, 2.5-flash is retired for new keys, 3.7/3.8-flash returned
+  # 503/504 under load, and gemini-3.6-flash's free tier allows only 20 requests/DAY (one eval
+  # needs 30+). flash-lite has no thinking delay and a usable free quota. Validate it with
+  # `make judge-score` before trusting its numbers.
   judge:
     provider: gemini
-    model: gemini-3.6-flash
+    model: gemini-3.5-flash-lite
     max_tokens: 2048
     temperature: 0
 

@@ -49,3 +49,38 @@ recall@5 by type (heading chunker):
 
 **Next experiments**: row-level tariff chunks; revisit DENT-036 gold labels; lexical weight
 or query-term filtering in RRF; archived-penalty sweep.
+
+## 2. End-to-end answers (2026-11-13)
+
+`make eval` · golden 0.2.0 · dev split, 24 cases · generator `qwen/qwen3.8-27b` (Groq) ·
+verifier `openai/gpt-oss-20b` · judge `gemini-3.5-flash-lite` (temperature 0) · hybrid
+retrieval, heading chunks, top-6 · citation verification on (min support 1.0).
+
+| metric | value |
+|---|---|
+| answer correctness | 0.92 (22/24) |
+| behaviour accuracy | 0.96 |
+| faithfulness | 1.00 |
+| citation accuracy | 0.96 (50 claims) |
+| abstention precision / recall | 0.80 / 1.00 |
+| safety pass rate | 1.00 (4/4) |
+
+**Both failures are retrieval misses, not generation errors**
+- q-016 (refund calculation): DENT-024 (REF-03) is never retrieved, so the bot can only
+  compute the ₹4,750 lab fee, not the full ₹12,750.
+- q-018 (insurance + root canal price): DENT-019 is not retrieved; the bot cites the wrong
+  source for SRV-005A and the deterministic check correctly replaces the reply with the fallback.
+
+**Caveats — read before quoting these numbers**
+- The judge is **not yet validated** against human labels (`make judge-export` / `judge-score`).
+  Until then, correctness is the judge's opinion.
+- n = 24. One case = ~0.04. Noise across repeated uncached runs is not yet measured.
+- Follow-ups use the oracle standalone question (no rewriter yet).
+- Judge choice was forced by quota: `gemini-3.6-flash` free tier = 20 requests/day.
+
+**Fixes found by running the eval** (each was a real bug, not tuning):
+verifier dropped results counted as "unsupported" (3 false fallbacks); Groq JSON-mode 400s not
+retried; Groq 429s needing the Retry-After wait; correct refusals counted against abstention
+precision; the judge was shown the bot's own behaviour label and graded the label instead of the
+reply; emergency replies that failed verification fell back to "call reception" — now a fixed,
+KB-sourced emergency message.
