@@ -29,6 +29,9 @@ GROUNDED = {"answer", "clarify", "handoff"}
 
 
 class GeneratorOutput(BaseModel):
+    # Private scratch space for calculations / reasoning; never shown or verified. Without it the
+    # model "thinks aloud" inside `answer` on multi-step questions (seen on q-016).
+    working: str = ""
     behavior: Behavior
     answer: str
     citations: list[str] = []
@@ -143,10 +146,10 @@ class Answerer:
         result.citations = [sid_to_doc[s] for s in cited if s in sid_to_doc]
 
     def _verify(
-        self, out: GeneratorOutput, sources: dict[str, str]
+        self, out: GeneratorOutput, sources: dict[str, str], question: str = ""
     ) -> tuple[Verification, str | None]:
         """Verify a grounded reply; return the verification and a failure reason (None = ok)."""
-        v = verify_answer(out.answer, sources, llm=self.verifier)
+        v = verify_answer(out.answer, sources, llm=self.verifier, question=question)
         if v.n_claims == 0:
             return v, "grounded reply has no citations"
         if (v.support_ratio or 0.0) < self.cfg["verification"]["min_support_ratio"]:
@@ -217,7 +220,7 @@ class Answerer:
         emergency = out.behavior == "handoff"
         if vcfg["enabled"] and result.fallback_reason is None and out.behavior in GROUNDED:
             t2 = time.perf_counter()
-            v, failure = self._verify(out, source_texts)
+            v, failure = self._verify(out, source_texts, question)
             # One repair attempt (configurable): show the generator exactly what failed.
             for _ in range(vcfg.get("repair_attempts", 0)):
                 if failure is None:
@@ -238,7 +241,7 @@ class Answerer:
                     if emergency:  # never let a repair downgrade an emergency to an abstention
                         failure = "repair dropped the emergency handoff"
                     break
-                v, failure = self._verify(out, source_texts)
+                v, failure = self._verify(out, source_texts, question)
             timings["verify_ms"] = int((time.perf_counter() - t2) * 1000)
             result.verification = v
             if failure:

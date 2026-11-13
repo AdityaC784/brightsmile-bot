@@ -230,3 +230,29 @@ def test_repair_never_downgrades_an_emergency(repair_reply):
     r = _answerer([_hit(1, src)], gen, ScriptedLLM(no, no)).answer("tooth knocked out")
     assert r.behavior == "handoff" and r.fallback_reason
     assert "milk" in r.answer and "112" in r.answer  # fixed emergency text with first aid
+
+
+def test_calculated_amounts_pass_only_with_visible_arithmetic():
+    src = "SRV-005A ₹6,800; SRV-002 ₹350 per exposure; admin fee INR 500; 50% crown fee ₹4,750; package ₹14,800"
+    calc = "You lose ₹6,800 + ₹700 (2 × ₹350) + ₹500 + ₹4,750 = ₹12,750, so ₹2,050 of ₹14,800 is refunded [S1]."  # noqa: RUF001 - the model writes the multiplication sign
+    assert facts_in_text(calc, src) == (True, "")
+    # A total that doesn't follow from the shown amounts still fails.
+    ok, why = facts_in_text("You lose ₹6,800 + ₹500 = ₹9,999 [S1].", src)
+    assert not ok and "9,999" in why
+    # A lone invented amount with no arithmetic fails.
+    assert not facts_in_text("Scaling costs ₹1,234 [S1].", src)[0]
+
+
+def test_total_in_separate_sentence_from_breakdown_passes():
+    sources = {
+        "S1": "SRV-005A ₹6,800; SRV-002 ₹350; package PKG-002 ₹14,800",
+        "S2": "REF-03 admin fee INR 500; REF-04 50% crown fee ₹4,750",
+    }
+    answer = (
+        "Deductions: ₹6,800 + ₹700 (2 x ₹350) + ₹500 + ₹4,750 [S1][S2]. "
+        "So you lose ₹12,750 in total and get ₹2,050 back [S2]."
+    )
+    v = verify_answer(answer, sources, use_llm=False)
+    assert v.n_claims == 2 and v.support_ratio == 1.0
+    bad = verify_answer("You lose ₹13,000 in total [S2].", sources, use_llm=False)
+    assert bad.support_ratio == 0.0

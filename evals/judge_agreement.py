@@ -40,18 +40,18 @@ def _load_run(path: str) -> list[dict]:
     return [r for r in json.loads(p.read_text(encoding="utf-8"))["cases"] if "error" not in r]
 
 
-def _load_labels() -> dict[str, dict]:
-    if not LABELS.exists():
+def _load_labels(path: Path = LABELS) -> dict[str, dict]:
+    if not path.exists():
         return {}
-    rows = [json.loads(x) for x in LABELS.read_text(encoding="utf-8").splitlines() if x.strip()]
+    rows = [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
     return {r["id"]: r for r in rows}
 
 
-def export(run: str) -> int:
+def export(run: str, labels: Path = LABELS) -> int:
     from evals.golden_set import load_golden
 
     golden = {c.id: c for c in load_golden()}
-    existing = _load_labels()
+    existing = _load_labels(labels)
     out = []
     for r in _load_run(run):
         h = _reply_hash(r["answer"])
@@ -73,10 +73,10 @@ def export(run: str) -> int:
                 "labeler": keep.get("labeler", "human") if keep else "human",
             }
         )
-    LABELS.parent.mkdir(parents=True, exist_ok=True)
-    LABELS.write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in out) + "\n", "utf-8")
+    labels.parent.mkdir(parents=True, exist_ok=True)
+    labels.write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in out) + "\n", "utf-8")
     todo = sum(1 for x in out if x["human_correct"] is None)
-    print(f"Wrote {len(out)} rows to {LABELS.relative_to(ROOT)} ({todo} need a label).")
+    print(f"Wrote {len(out)} rows to {labels.relative_to(ROOT)} ({todo} need a label).")
     return 0
 
 
@@ -90,8 +90,8 @@ def cohen_kappa(a: list[bool], b: list[bool]) -> float | None:
     return 1.0 if pe == 1 else (po - pe) / (1 - pe)
 
 
-def score(run: str) -> int:
-    labels = _load_labels()
+def score(run: str, labels_path: Path = LABELS) -> int:
+    labels = _load_labels(labels_path)
     pairs, stale, unlabelled = [], [], []
     for r in _load_run(run):
         lab = labels.get(r["id"])
@@ -135,8 +135,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("command", choices=["export", "score"])
     ap.add_argument("--run", default="evals/runs/latest.json")
+    ap.add_argument("--labels", default=str(LABELS.relative_to(ROOT)), help="labels file")
     a = ap.parse_args()
-    return export(a.run) if a.command == "export" else score(a.run)
+    labels = Path(a.labels) if Path(a.labels).is_absolute() else ROOT / a.labels
+    return export(a.run, labels) if a.command == "export" else score(a.run, labels)
 
 
 if __name__ == "__main__":

@@ -177,3 +177,32 @@ literal (rejected "must reach a dentist within 30–60 minutes"), and the repair
 knocked-out-tooth handoff into a non-emergency reply, which then fell back to "call reception".
 Now: paraphrases that keep the meaning are accepted, and an emergency can never fall back to the
 generic text (regression tests added).
+
+### 2d. First holdout run + calculation support (2026-11-13)
+
+Changes measured: tariff expansion (service codes from the question / package rows pull the
+2026 price row), arithmetic-aware price check (multiples, sums, differences of source amounts),
+patient's question passed to the verifier, private `working` field so the model never "thinks
+aloud" in the reply.
+
+| split | hand labels | judge | judge vs labels |
+|---|---|---|---|
+| **dev** (24) | **0.88 (21/24)** | 0.88 | 22/24, kappa 0.62 |
+| **holdout** (5 of 6 run) | **0.80 (4/5)** | 0.80 | 5/5 |
+
+Holdout q-023 did not run (third key's daily Qwen quota exhausted). **Holdout is reported, not
+tuned on** — its one failure (q-015, an incomplete summary of POL-CAN-01) is left as is.
+
+Dev failures (hand labels):
+- q-016: correct totals were produced, but the total sat in a different sentence from its
+  breakdown, so the arithmetic check rejected it → fallback. **Fixed in code after this run**
+  (calculated amounts may use amounts anywhere in the reply; quoted prices must still be in the
+  cited source).
+- q-018: "generally covered up to the sub-limit" with no "not guaranteed" caveat (judge passed it).
+- q-029: declined medication correctly but dropped the red-flag emergency route.
+- q-018/q-029 addressed with two prompt rules from KB policy (DENT-022 §3, DENT-036 §3);
+  **not yet re-measured** (needs a full regeneration once Groq daily quotas reset).
+
+Noted on the way: the model's raw reply on q-016 contained self-corrections ("Wait, let me
+re-calculate…") with three different totals; the verifier passed it because each figure was
+arithmetically valid. The `working` field removes this class of reply.
