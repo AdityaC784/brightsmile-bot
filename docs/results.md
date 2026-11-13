@@ -206,3 +206,17 @@ Dev failures (hand labels):
 Noted on the way: the model's raw reply on q-016 contained self-corrections ("Wait, let me
 re-calculate…") with three different totals; the verifier passed it because each figure was
 arithmetically valid. The `working` field removes this class of reply.
+
+## 3. Tuning freeze (2026-11-13)
+
+Review of the day's work: the architecture and eval tooling are on plan, but the answer pipeline
+was tuned too hard against 24 dev cases (6 prompt rules added right after specific dev failures;
+several mechanisms added for q-016 alone; golden set edited after seeing results; noise never
+measured). Decision:
+
+- **Frozen:** no more prompt rules or golden-set edits driven by individual dev failures.
+- **q-016 is a known limitation** (multi-rule refund maths), not a target.
+- Next, in order: one re-measure on fresh quota (dev + holdout, no holdout-driven changes);
+  noise measurement (two uncached dev runs, `--no-cache`); golden set to 50 with *new* questions;
+  keep the arithmetic check / tariff expansion only if the re-measure shows they don't hurt
+  other cases; then the CI gate.

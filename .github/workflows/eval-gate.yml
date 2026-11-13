@@ -1,0 +1,81 @@
+name: eval-gate
+
+# Plan §8: any PR that touches what the bot says is evaluated against the committed baseline;
+# a regression or a hard-rule failure blocks the merge (make this check required in branch
+# protection).
+on:
+  pull_request:
+    paths: ["src/**", "prompts/**", "configs/**", "data/kb/**", "evals/**"]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency: # one eval per PR at a time (free-tier LLM quotas)
+  group: eval-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      db:
+        image: pgvector/pgvector:0.8.0-pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: brightsmile
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d brightsmile"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/brightsmile
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      GROQ_GENERATOR_API_KEY: ${{ secrets.GROQ_GENERATOR_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      LLM_CACHE_DIR: .cache/llm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+
+      - name: Require a committed baseline
+        run: |
+          test -f evals/baseline.json || {
+            echo "::error::evals/baseline.json is missing. Create it with 'make eval-baseline' in its own PR."
+            exit 1; }
+
+      # LLM responses are cached by prompt hash: unchanged cases cost nothing and grade
+      # identically, so only what the PR actually changed is re-generated and re-judged.
+      - name: Restore LLM cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/llm
+          key: llm-${{ hashFiles('prompts/**', 'configs/**', 'src/**', 'data/kb/**', 'evals/golden/**') }}
+          restore-keys: llm-
+
+      - run: uv run python -m bot.db.migrate
+      - run: uv run python -m bot.retrieval.ingest
+      - name: Run eval (dev + holdout)
+        run: uv run python -m evals.runner --split all --out evals/runs/pr.json || true
+
+      - name: Compare to baseline
+        run: |
+          uv run python -m evals.compare --baseline evals/baseline.json \
+            --candidate evals/runs/pr.json --comment-out comment.md
+
+      - name: Comment on PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} --body-file comment.md --edit-last \
+            || gh pr comment ${{ github.event.pull_request.number }} --body-file comment.md
+
+      - name: Enforce gate (non-zero exit blocks merge)
+        run: |
+          uv run python -m evals.compare --baseline evals/baseline.json \
+            --candidate evals/runs/pr.json --enforce

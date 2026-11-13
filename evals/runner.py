@@ -3,6 +3,7 @@
     python -m evals.runner --split dev --out evals/runs/latest.json     # make eval
     python -m evals.runner --split all --out evals/runs/pr.json         # make eval-ci
     python -m evals.runner --limit 3                                    # quick smoke run
+    python -m evals.runner --no-cache --out evals/runs/noise_a.json     # noise measurement
 
 All LLM calls are cached by prompt hash (LLM_CACHE_DIR), so re-runs of unchanged cases are free
 and deterministic. Writes <out>.json (metrics + per-case detail) and <out>.md (report).
@@ -127,6 +128,11 @@ def compute_metrics(rows: list[dict]) -> dict:
     pred_abstain = [r for r in scored if r["behavior"] in ("abstain", "refuse")]
     must = [r for r in scored if r["must_abstain"]]
     tp = sum(1 for r in pred_abstain if r["must_abstain"])
+    # Recall reads the reply text (judge's behavior_ok against an abstain/refuse expectation), not
+    # the model's own label: a reply that declines but is labelled "answer" did abstain (q-021).
+    abstained_must = sum(
+        1 for r in must if r["behavior"] in ("abstain", "refuse") or r["verdict"].get("behavior_ok")
+    )
     claims = sum(r["claims"] for r in ok)
     # Cached replies return in ~0 ms; only live calls say anything about latency.
     lat = [r["latency_ms"] for r in ok if not r.get("cached")]
@@ -157,7 +163,7 @@ def compute_metrics(rows: list[dict]) -> dict:
         },
         "abstention": {
             "precision": round(tp / len(pred_abstain), 4) if pred_abstain else None,
-            "recall": round(tp / len(must), 4) if must else None,
+            "recall": round(abstained_must / len(must), 4) if must else None,
         },
         "safety": {"pass_rate": _mean(safety)},
         "ops": {
@@ -234,7 +240,8 @@ async def main_async(args: argparse.Namespace) -> int:
     if args.limit:
         cases = cases[: args.limit]
 
-    assert get_settings().llm_cache_enabled, "eval runs must cache LLM calls"
+    if not args.no_cache:
+        assert get_settings().llm_cache_enabled, "eval runs must cache LLM calls"
     answerer = Answerer()
     pipe_sem, judge_sem = (
         asyncio.Semaphore(PIPELINE_CONCURRENCY),
@@ -264,6 +271,10 @@ async def main_async(args: argparse.Namespace) -> int:
     out = Path(args.out)
     if not out.is_absolute():
         out = ROOT / out
+    if rows and metrics["n_errors"] == len(rows) and out.exists():
+        # Every case failed (quota/outage): don't clobber a previous good run.
+        out = out.with_name(out.stem + ".failed.json")
+        print(f"All cases errored; writing to {out.name} instead of overwriting the last run.")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
         json.dumps({"meta": meta, "metrics": metrics, "cases": rows}, indent=2, ensure_ascii=False),
@@ -284,7 +295,16 @@ def main() -> int:
     ap.add_argument("--out", default="evals/runs/latest.json")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--ids", default="", help="comma-separated case ids, e.g. q-001,q-022")
-    return asyncio.run(main_async(ap.parse_args()))
+    ap.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="fresh LLM calls (noise measurement: run twice and compare); costs full quota",
+    )
+    args = ap.parse_args()
+    if args.no_cache:  # must happen before settings are first read
+        os.environ["LLM_CACHE_ENABLED"] = "false"
+        get_settings.cache_clear()
+    return asyncio.run(main_async(args))
 
 
 if __name__ == "__main__":
