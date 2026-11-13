@@ -153,31 +153,3 @@ def test_reference_expansion_fetches_named_rows():
     assert "DENT-024#REF-03" in ids and "DENT-024#REF-04" in ids
     assert len(ids) == len(set(ids))
     assert r.expand_references([pkg], limit=0) == [pkg]
-
-
-@pytest.mark.skipif(not _db_has_chunks(), reason="needs `docker compose up db` + ingest")
-def test_tariff_expansion_uses_row_chunks_not_prose():
-    from bot.retrieval.hybrid import Hit
-
-    r = HybridRetriever()
-    pkg = Hit(
-        0,
-        "DENT-023#PKG-002",
-        "DENT-023",
-        "Packages",
-        "PKG-002",
-        "included service ids: 1x SRV-005A; 1x SRV-006A; 2x SRV-002",
-        "active",
-        0.03,
-        1,
-        1,
-    )
-    out = r.expand_tariff([pkg], "", limit=2)
-    added = out[1:]
-    assert added and all(h.source_doc_id == "DENT-019" for h in added)
-    assert any("SRV-005A" in h.content and "6,800" in h.content for h in added)
-    # Codes mentioned only in prose chunks don't trigger expansion.
-    prose = Hit(
-        1, "DENT-004#mapping", "DENT-004", "Team", "Map", "SRV-005A SRV-002", "active", 0.03, 1, 1
-    )
-    assert r.expand_tariff([prose], "", limit=2) == [prose]

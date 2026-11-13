@@ -76,26 +76,14 @@ def _base_meta(doc: LoadedDoc) -> dict:
 class _Section:
     path: list[str]
     lines: list[str] = field(default_factory=list)
-    row_key: str | None = None  # set for a single table-row section
 
     @property
     def tokens(self) -> int:
         return sum(count_tokens(x) for x in self.lines)
 
 
-def _row_key(row: str) -> str:
-    """'Service ID: SRV-005A; Service Description: ...' -> 'SRV-005A' (value of the first cell)."""
-    first = row.split(";", 1)[0]
-    return first.split(":", 1)[1].strip() if ":" in first else first.strip()
-
-
-def _sections(doc: LoadedDoc, table_row_min_rows: int = 0) -> list[_Section]:
-    """Group blocks under their nearest heading, tracking the heading path.
-
-    Tables with at least `table_row_min_rows` rows become one row-section per row (like CSV
-    rows), so a single tariff line can be retrieved on its own instead of being diluted among
-    the other rows. 0 disables this.
-    """
+def _sections(doc: LoadedDoc) -> list[_Section]:
+    """Group blocks under their nearest heading, tracking the heading path."""
     title = doc.meta.get("title", "")
     stack: list[tuple[int, str]] = []
     sections: list[_Section] = [_Section(path=[])]
@@ -111,20 +99,12 @@ def _sections(doc: LoadedDoc, table_row_min_rows: int = 0) -> list[_Section]:
                 stack.pop()
             stack.append((b.level, b.text))
             sections.append(_Section(path=[t for _, t in stack]))
-        elif b.kind == "table" and table_row_min_rows and len(b.rows) >= table_row_min_rows:
-            path = [t for _, t in stack]
-            for row in b.rows:
-                sections.append(_Section(path=path, lines=[row], row_key=_row_key(row)))
-            # Text after the table continues the same heading in a fresh section.
-            sections.append(_Section(path=path))
         else:
             sections[-1].lines.extend(_block_lines(b))
     return [s for s in sections if s.lines]
 
 
-def chunk_heading(
-    doc: LoadedDoc, max_tokens: int = 450, min_tokens: int = 40, table_row_min_rows: int = 0
-) -> list[Chunk]:
+def chunk_heading(doc: LoadedDoc, max_tokens: int = 450, min_tokens: int = 40) -> list[Chunk]:
     title = doc.meta["title"]
     base = _base_meta(doc)
     used: set[str] = set()
@@ -148,13 +128,7 @@ def chunk_heading(
     # Merge tiny sections into the following one so no chunk is a lone heading + one line.
     merged: list[_Section] = []
     carry: _Section | None = None
-    for s in _sections(doc, table_row_min_rows):
-        if s.row_key is not None:  # table rows stand alone: never merged or split
-            if carry is not None:
-                merged.append(carry)
-                carry = None
-            merged.append(s)
-            continue
+    for s in _sections(doc):
         if carry is not None:
             heading_line = carry.path[-1] if carry.path else ""
             s = _Section(
@@ -178,19 +152,6 @@ def chunk_heading(
     for s in merged:
         section = " > ".join(s.path)
         heading = s.path[-1] if s.path else ""
-        if s.row_key is not None:
-            out.append(
-                Chunk(
-                    doc_id=_unique(f"{doc.doc_id}#{slugify(s.row_key, 32)}", used),
-                    source_doc_id=doc.doc_id,
-                    title=title,
-                    section=f"{section} > {s.row_key}" if section else s.row_key,
-                    content=f"{heading}\n- {s.lines[0]}" if heading else s.lines[0],
-                    chunker="heading",
-                    metadata={**base, "table_row": s.row_key},
-                )
-            )
-            continue
         anchor = f"{doc.doc_id}#{slugify(s.path[-1]) if s.path else 'intro'}"
         # Split oversized sections at line (paragraph / table-row) boundaries.
         parts: list[list[str]] = [[]]

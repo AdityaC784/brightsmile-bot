@@ -74,75 +74,18 @@ def _norm_money(s: str) -> str:
     return s.replace(",", "")
 
 
-def _to_num(s: str) -> float | None:
-    try:
-        return float(_norm_money(s).rstrip("."))
-    except ValueError:
-        return None
+def facts_in_text(claim: str, source_text: str) -> tuple[bool, str]:
+    """Every ₹ amount and identifier in the claim must occur in the cited source text.
 
-
-def _derived(claim_nums: list[float], grounded: set[float]) -> set[float]:
-    """Amounts in the claim that follow from grounded ones by simple arithmetic shown in the
-    same sentence: a small multiple (2 x ₹350), a sum of other amounts in the sentence
-    (₹6,800 + ₹700 + ₹500 + ₹4,750 = ₹12,750) or a difference (₹14,800 - ₹12,750)."""
-    ok = set(grounded) & set(claim_nums)
-    changed = True
-    while changed:
-        changed = False
-        for x in claim_nums:
-            if x in ok:
-                continue
-            base = ok | grounded
-            others = [y for y in ok if y != x]
-            hit = (
-                any(abs(x - k * a) < 0.01 for a in base for k in (2, 3, 4))
-                or any(abs(x - (a - b)) < 0.01 for a in base for b in base if a > b)
-                or _subset_sum(others, x)
-            )
-            if hit:
-                ok.add(x)
-                changed = True
-    return ok
-
-
-def _subset_sum(nums: list[float], target: float, max_terms: int = 6) -> bool:
-    from itertools import combinations
-
-    nums = nums[:10]  # sentences rarely carry more; keeps this bounded
-    return any(
-        abs(sum(c) - target) < 0.01
-        for r in range(2, min(max_terms, len(nums)) + 1)
-        for c in combinations(nums, r)
-    )
-
-
-def facts_in_text(
-    claim: str, source_text: str, derived_elsewhere: set[float] | frozenset[float] = frozenset()
-) -> tuple[bool, str]:
-    """Every ₹ amount and identifier in the claim must occur in the cited source text, or (for
-    amounts) follow by visible arithmetic from amounts that do. `derived_elsewhere` holds amounts
-    already shown to follow from source amounts elsewhere in the same reply (a total stated in
-    one sentence, its breakdown in another)."""
+    Calculated totals (sums of several published amounts) therefore fail and fall back to the
+    safe reply; the bot quotes published amounts rather than computing totals (see results §3).
+    """
     src_money = {_norm_money(m) for m in MONEY.findall(source_text)}
     src_plain = _norm_money(source_text)
-    amounts = MONEY.findall(CITE.sub("", claim))
-    grounded = {
-        v
-        for m in amounts
-        if (_norm_money(m) in src_money or _norm_money(m) in src_plain)
-        and (v := _to_num(m)) is not None
-    } | {v for m in src_money if (v := _to_num(m)) is not None}
-    nums = [v for m in amounts if (v := _to_num(m)) is not None]
-    derived = _derived(nums, grounded)
-    for m in amounts:
-        n, v = _norm_money(m), _to_num(m)
-        if (
-            n in src_money
-            or n in src_plain
-            or (v is not None and (v in derived or v in derived_elsewhere))
-        ):
-            continue
-        return False, f"amount ₹{m} not in cited sources"
+    for m in MONEY.findall(CITE.sub("", claim)):
+        n = _norm_money(m)
+        if n not in src_money and n not in src_plain:
+            return False, f"amount ₹{m} not in cited sources"
     for ident in IDENT.findall(claim):
         if ident not in source_text:
             return False, f"identifier {ident} not in cited sources"
@@ -171,21 +114,13 @@ def verify_answer(
     patient stated in `question` (e.g. what is already completed) count as given."""
     claims, uncited = split_claims(answer)
     v = Verification(claims=claims, uncited=uncited)
-    # Amounts anywhere in the reply that follow by arithmetic from amounts in the shown sources
-    # (lets "you lose ₹12,750" pass when the breakdown is in the previous sentence).
-    all_src = "\n".join(sources.values())
-    grounded_all = {n for m in MONEY.findall(all_src) if (n := _to_num(m)) is not None}
-    reply_nums = [n for m in MONEY.findall(CITE.sub("", answer)) if (n := _to_num(m)) is not None]
-    # Only *calculated* amounts (in no source at all) get this allowance; a price that does
-    # appear in some source must still be in the source it cites (citation accuracy).
-    derived_reply = _derived(reply_nums, grounded_all) - grounded_all
     to_check: list[Claim] = []
     for c in claims:
         unknown = [s for s in c.source_ids if s not in sources]
         if unknown:
             c.supported, c.reason = False, f"cites unknown source {', '.join(unknown)}"
             continue
-        ok, why = facts_in_text(c.text, "\n".join(sources[s] for s in c.source_ids), derived_reply)
+        ok, why = facts_in_text(c.text, "\n".join(sources[s] for s in c.source_ids))
         if not ok:
             c.supported, c.reason = False, why
             continue

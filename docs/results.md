@@ -220,3 +220,17 @@ measured). Decision:
   noise measurement (two uncached dev runs, `--no-cache`); golden set to 50 with *new* questions;
   keep the arithmetic check / tariff expansion only if the re-measure shows they don't hurt
   other cases; then the CI gate.
+
+### 3a. Simplification (2026-11-13)
+
+Removed before the re-measure, so it measures the system we intend to keep (−246 / +31 lines):
+- **Table row-chunking** — rejected by measurement (§1b); was dead code behind a 0 flag.
+- **Tariff expansion** — built for q-016 only; added ~900 tokens to 8/20 dev prompts.
+- **Arithmetic solver in the price check** — built for q-016 only; already produced one citation
+  loophole. Policy now: every ₹ amount must appear in its cited source; computed totals fall
+  back safely. The answer prompt asks for the published amounts and rules, with reception
+  confirming exact totals.
+
+Kept (general, evidence beyond one case): repair loop, emergency stickiness, private `working`
+field, question-aware verification, reference expansion, weighted RRF. Retrieval unchanged
+after removal (dev hybrid/heading 0.93 / 0.82). q-016 remains a known limitation.

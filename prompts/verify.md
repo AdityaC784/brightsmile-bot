@@ -16,11 +16,6 @@ phrased as "must"/"should" where the source states the reason for urgency, or a 
 summary that leaves no condition out. Flag only a change that would make the patient do
 something different from what the source says.
 
-Calculations: a total, difference or multiple worked out from amounts in the cited sources
-(e.g. "2 × ₹350 = ₹700", "₹14,800 − ₹12,750 = ₹2,050") is supported if the arithmetic is
-correct and every input amount comes from the sources. Check the arithmetic; wrong arithmetic
-is unsupported.
-
 Every source is an official document of BrightSmile Dental Care (Aura Business Plaza, Baner
 Road, Pune). Naming the clinic, "our clinic" or "we" is never an unsupported fact.
 
