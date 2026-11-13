@@ -24,6 +24,10 @@ from bot.llm.embeddings import Embedder
 
 Mode = Literal["hybrid", "lexical", "dense"]
 
+# Codes that name a single CSV row chunk (refund rules, packages, payment methods, walk-in
+# tiers, equipment). Used for one-hop reference expansion.
+ROW_CODE = re.compile(r"\b(?:REF|PKG|PAY|WLK|EQP)-[A-Z0-9]+\b")
+
 
 @dataclass
 class Hit:
@@ -128,3 +132,33 @@ class HybridRetriever:
                 conn.execute("SET LOCAL hnsw.iterative_scan = relaxed_order")
                 rows = conn.execute(_SQL, params).fetchall()
         return [Hit(*r[:7], float(r[7]), r[8], r[9]) for r in rows]
+
+    def expand_references(self, hits: list[Hit], *, limit: int | None = None) -> list[Hit]:
+        """One-hop reference expansion: append the row chunks that retrieved chunks name.
+
+        The KB cross-references itself with row codes (a package row lists
+        "refund policy code: REF-03; REF-04"; a policy cites PAY-06). When such a code has its own
+        row chunk (doc_id '<DOC>#<CODE>') that wasn't retrieved, fetch it, in order of first
+        mention, up to `limit`. Expanded hits get score 0 and no ranks.
+        """
+        limit = self.cfg["search"].get("expand_references", 0) if limit is None else limit
+        if not limit or not hits:
+            return hits
+        have = {h.doc_id.split("#", 1)[-1] for h in hits}
+        wanted: list[str] = []
+        for h in hits:
+            for code in ROW_CODE.findall(h.content):
+                if code not in have and code not in wanted:
+                    wanted.append(code)
+        if not wanted:
+            return hits
+        with psycopg.connect(self.database_url) as conn:
+            rows = conn.execute(
+                """SELECT id, doc_id, source_doc_id, title, section, content, status
+                   FROM chunks
+                   WHERE tenant_id = %s AND chunker = %s AND split_part(doc_id, '#', 2) = ANY(%s)""",
+                (get_settings().tenant_id, self.cfg["chunking"]["strategy"], wanted),
+            ).fetchall()
+        by_code = {r[1].split("#", 1)[1]: r for r in rows}
+        extra = [Hit(*by_code[c], 0.0, None, None) for c in wanted if c in by_code][:limit]
+        return hits + extra

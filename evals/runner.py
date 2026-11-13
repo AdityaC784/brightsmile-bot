@@ -88,6 +88,7 @@ async def run_case(
         behavior=result.behavior,
         answer=result.answer,
         fallback_reason=result.fallback_reason,
+        repaired=result.repaired,
         citations=result.citations,
         retrieved=docs,
         recall_at_5=recall_at_k(docs, case.gold_doc_ids) if case.gold_doc_ids else None,
@@ -152,6 +153,7 @@ def compute_metrics(rows: list[dict]) -> dict:
             else None,
             "claims": claims,
             "fallbacks": sum(1 for r in ok if r["fallback_reason"]),
+            "repairs": sum(1 for r in ok if r.get("repaired")),
         },
         "abstention": {
             "precision": round(tp / len(pred_abstain), 4) if pred_abstain else None,
@@ -186,7 +188,8 @@ def render_report(metrics: dict, rows: list[dict], meta: dict) -> str:
         f"| behaviour accuracy | {f(m['answer']['behavior_accuracy'])} |",
         f"| faithfulness | {f(m['grounding']['faithfulness'])} |",
         f"| citation accuracy | {f(m['citations']['accuracy'])} ({m['citations']['claims']} claims) |",
-        f"| verifier fallbacks | {m['citations']['fallbacks']} |",
+        f"| verifier repairs / fallbacks | {m['citations']['repairs']} / "
+        f"{m['citations']['fallbacks']} |",
         f"| abstention precision / recall | {f(m['abstention']['precision'])} / "
         f"{f(m['abstention']['recall'])} |",
         f"| safety pass rate | {f(m['safety']['pass_rate'])} |",

@@ -145,3 +145,35 @@ reason. With n = 24, treat kappa 1.00 as "no disagreements on this run", not as 
 **Free-tier daily limits hit during this round** (Groq, per key, per model): 200k tokens/day,
 about 55 generator answers or about 45 judge calls. Daily-quota errors now fail fast instead of
 retrying, and each case has a 5-minute timeout.
+
+### 2c. Repair loop, reference expansion, KB clarity fix (2026-11-13)
+
+golden 0.5.0 · kb `0bb7a44de68d` · verifier `gpt-oss-20b` (condition-aware prompt) · one repair
+attempt · one-hop reference expansion (≤ 3 rows).
+
+| metric | judge | hand labels |
+|---|---|---|
+| answer correctness | 0.92 (22/24) | **0.96 (23/24)** |
+| faithfulness | 1.00 | |
+| citation accuracy | 1.00 (49 claims) | |
+| verifier repairs / fallbacks | 1 / 0 | |
+| abstention precision / recall | 0.80 / 1.00 | |
+| safety pass rate | 1.00 | |
+
+Judge vs labels: 23/24 agreement, kappa 0.65; the one disagreement (q-018) is the judge being
+stricter (it wanted the explicit "not guaranteed" wording).
+
+**What fixed what**
+- q-020 ("may attend alone"): the condition rule in the verifier catches it (tested offline: 20b
+  caught it with 0 false rejections on 7 good replies, same as 120b, so 20b kept); the repair
+  loop lets the generator correct it; and the DENT-029 row now says "never alone" explicitly.
+- q-016: reference expansion brings in REF-03 (named by the PKG-002 row); the question now
+  states what is completed. The bot applies both rules but still lacks the 2026 prices of the
+  completed services, so it declines to give a total. **Remaining failure.** Next fix: extend
+  expansion to service codes (pull the tariff chunk containing SRV-005A / SRV-002).
+
+**Regression caught and fixed in this round:** the first version of the condition rule was too
+literal (rejected "must reach a dentist within 30–60 minutes"), and the repair turned the
+knocked-out-tooth handoff into a non-emergency reply, which then fell back to "call reception".
+Now: paraphrases that keep the meaning are accepted, and an emergency can never fall back to the
+generic text (regression tests added).

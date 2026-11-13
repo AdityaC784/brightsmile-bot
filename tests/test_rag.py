@@ -1,5 +1,6 @@
 """Offline tests for the answer pipeline: fake retriever + fake LLMs, no network."""
 
+import copy
 import json
 
 import pytest
@@ -41,10 +42,14 @@ class ScriptedLLM:
         return schema.model_validate(reply), ChatResponse(json.dumps(reply), "fake", "fake")
 
 
-def _answerer(hits, generator, verifier=None):
-    return Answerer(
+def _answerer(hits, generator, verifier=None, *, repair=True):
+    a = Answerer(
         retriever=FakeRetriever(hits), generator=generator, verifier=verifier or ScriptedLLM()
     )
+    if not repair:  # copy: load_yaml's dict is cached and shared
+        a.cfg = copy.deepcopy(a.cfg)
+        a.cfg["verification"]["repair_attempts"] = 0
+    return a
 
 
 # --------------------------------------------------------------------------- verification
@@ -98,7 +103,7 @@ def test_invented_price_triggers_fallback():
     gen = ScriptedLLM(
         {"behavior": "answer", "answer": "Scaling costs ₹999 [S1].", "citations": ["S1"]}
     )
-    r = _answerer([_hit(1, TARIFF)], gen).answer("price of scaling?")
+    r = _answerer([_hit(1, TARIFF)], gen, repair=False).answer("price of scaling?")
     assert r.behavior == "abstain" and r.citations == []
     assert "+91-20-5550-0140" in r.answer and "999" not in r.answer
     assert "999" in r.fallback_reason
@@ -106,7 +111,7 @@ def test_invented_price_triggers_fallback():
 
 def test_uncited_grounded_reply_falls_back():
     gen = ScriptedLLM({"behavior": "answer", "answer": "Scaling costs ₹1,800.", "citations": []})
-    r = _answerer([_hit(1, TARIFF)], gen).answer("price of scaling?")
+    r = _answerer([_hit(1, TARIFF)], gen, repair=False).answer("price of scaling?")
     assert r.behavior == "abstain" and r.fallback_reason == "grounded reply has no citations"
 
 
@@ -118,7 +123,10 @@ def test_failed_emergency_reply_keeps_emergency_routing():
         {"results": [{"claim": 1, "supported": False, "reason": "hospital not in source"}]}
     )
     r = _answerer(
-        [_hit(1, "ESC-01: Jupiter Hospital Baner or Manipal Hospital Baner")], gen, ver
+        [_hit(1, "ESC-01: Jupiter Hospital Baner or Manipal Hospital Baner")],
+        gen,
+        ver,
+        repair=False,
     ).answer("face swelling and fever")
     assert r.behavior == "handoff"
     assert "112" in r.answer and "Manipal Hospital" in r.answer
@@ -149,3 +157,76 @@ def test_answer_prompt_renders_clinic_details():
     assert "X Clinic" in p and "{" + "reception}" not in p
     with pytest.raises(KeyError):
         render_prompt("answer", not_a_placeholder="x")
+
+
+# --------------------------------------------------------------------------- repair loop
+
+
+def test_repair_fixes_bad_citation_and_keeps_answer():
+    hits = [_hit(1, "Visit info only."), _hit(2, TARIFF)]
+    gen = ScriptedLLM(
+        {"behavior": "answer", "answer": "Scaling costs ₹1,800 [S1].", "citations": ["S1"]},
+        {"behavior": "answer", "answer": "Scaling costs ₹1,800 [S2].", "citations": ["S2"]},
+    )
+    ver = ScriptedLLM({"results": [{"claim": 1, "supported": True}]})
+    r = _answerer(hits, gen, ver).answer("price of scaling?")
+    assert r.repaired and r.fallback_reason is None
+    assert r.answer == "Scaling costs ₹1,800 [DENT-019]."
+    feedback = gen.calls[1][1][-1].content
+    assert "1,800" in feedback and "not in cited sources" in feedback
+
+
+def test_failed_repair_falls_back():
+    gen = ScriptedLLM(
+        {"behavior": "answer", "answer": "Scaling costs ₹999 [S1].", "citations": ["S1"]},
+        {"behavior": "answer", "answer": "Scaling costs ₹998 [S1].", "citations": ["S1"]},
+    )
+    r = _answerer([_hit(1, TARIFF)], gen).answer("price of scaling?")
+    assert r.repaired and r.behavior == "abstain" and "998" in r.fallback_reason
+    assert len(gen.calls) == 2  # exactly one repair attempt
+
+
+def test_repair_may_choose_to_abstain():
+    gen = ScriptedLLM(
+        {"behavior": "answer", "answer": "Scaling costs ₹999 [S1].", "citations": ["S1"]},
+        {"behavior": "abstain", "answer": "I don't have that information."},
+    )
+    r = _answerer([_hit(1, TARIFF)], gen).answer("price of scaling?")
+    assert r.behavior == "abstain" and r.fallback_reason is None
+    assert r.answer == "I don't have that information."
+
+
+def test_emergency_repair_failure_keeps_emergency_text():
+    src = "ESC-01: Jupiter Hospital Baner or Manipal Hospital Baner"
+    bad = {"behavior": "handoff", "answer": "Go to Other Hospital [S1].", "citations": ["S1"]}
+    gen = ScriptedLLM(bad, bad)
+    no = {"results": [{"claim": 1, "supported": False, "reason": "hospital not in source"}]}
+    r = _answerer([_hit(1, src)], gen, ScriptedLLM(no, no)).answer("face swelling")
+    assert r.behavior == "handoff" and "112" in r.answer and "Manipal Hospital" in r.answer
+
+
+def test_refusals_never_trigger_repair():
+    gen = ScriptedLLM({"behavior": "refuse", "answer": "I can only help with clinic questions."})
+    r = _answerer([_hit(1, TARIFF)], gen).answer("write code")
+    assert not r.repaired and len(gen.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "repair_reply",
+    [
+        {"behavior": "answer", "answer": "Keep it dry [S1].", "citations": ["S1"]},
+        {"behavior": "abstain", "answer": "I'm not sure, call reception."},
+    ],
+)
+def test_repair_never_downgrades_an_emergency(repair_reply):
+    """Regression (q-009): a handoff that failed verification was repaired into a non-handoff
+    reply, then fell back to the generic 'call reception' text."""
+    src = "Knocked-out tooth: hold by the crown, store in cold milk, reach a dentist in 30-60 min."
+    gen = ScriptedLLM(
+        {"behavior": "handoff", "answer": "Rinse it under tap water [S1].", "citations": ["S1"]},
+        repair_reply,
+    )
+    no = {"results": [{"claim": 1, "supported": False, "reason": "contradicts source"}]}
+    r = _answerer([_hit(1, src)], gen, ScriptedLLM(no, no)).answer("tooth knocked out")
+    assert r.behavior == "handoff" and r.fallback_reason
+    assert "milk" in r.answer and "112" in r.answer  # fixed emergency text with first aid

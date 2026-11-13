@@ -127,3 +127,29 @@ def test_daily_quota_errors_are_not_retried():
     tpm = _StatusErr(429)
     tpm.args = ("Rate limit reached ... on tokens per minute (TPM): Limit 8000",)
     assert not is_daily_quota(tpm) and is_retryable(tpm)
+
+
+@pytest.mark.skipif(not _db_has_chunks(), reason="needs `docker compose up db` + ingest")
+def test_reference_expansion_fetches_named_rows():
+    """A retrieved package row names REF-03; expansion must add that refund-rule row once."""
+    from bot.retrieval.hybrid import Hit
+
+    r = HybridRetriever()
+    pkg = Hit(
+        0,
+        "DENT-023#PKG-002",
+        "DENT-023",
+        "Packages",
+        "PKG-002",
+        "refund policy code: REF-03; REF-04",
+        "active",
+        0.03,
+        1,
+        1,
+    )
+    out = r.expand_references([pkg], limit=3)
+    ids = [h.doc_id for h in out]
+    assert ids[0] == "DENT-023#PKG-002"
+    assert "DENT-024#REF-03" in ids and "DENT-024#REF-04" in ids
+    assert len(ids) == len(set(ids))
+    assert r.expand_references([pkg], limit=0) == [pkg]

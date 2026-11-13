@@ -37,3 +37,7 @@ verification:
   # Fraction of cited claims that must be supported; below this the answer is replaced by the
   # fallback. 1.0 = any unsupported claim triggers the fallback.
   min_support_ratio: 1.0
+  # When verification fails, give the generator this many retries with the verifier's reasons
+  # (e.g. "₹9,500 not in cited source", "drops the condition 'with an authorised adult'") before
+  # falling back. Costs one extra generator call, only for replies that failed.
+  repair_attempts: 1

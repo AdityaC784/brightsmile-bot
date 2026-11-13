@@ -27,6 +27,11 @@ search:
   # for every weight (dense alone ranks EQP-005 first for 'SRV-005A'). 0.3 chosen over 0.15 to
   # avoid over-fitting 21 dev cases while keeping full-text meaningful.
   lexical_weight: 0.3
+  # One-hop reference expansion for answering (not used by the retrieval eval): when a retrieved
+  # chunk names a row code (REF-03, PKG-002, PAY-06, ...) whose row chunk wasn't retrieved, add
+  # up to this many such rows as extra sources. Fixes multi-hop questions like q-016, where the
+  # package row says "refund policy code: REF-03; REF-04" but REF-03 itself never ranks.
+  expand_references: 3
   top_k: 6
 
   # Archived documents (DENT-020, 2025 prices) stay indexed so the bot can explain
