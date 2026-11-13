@@ -3,7 +3,7 @@
 
 PY := uv run python -m
 
-.PHONY: setup db-up db-down migrate ingest search eval eval-ci eval-baseline review serve test lint fmt
+.PHONY: setup db-up db-down migrate ingest search eval-retrieval eval eval-ci eval-baseline review serve test lint fmt
 
 setup:          ## install deps + git hooks
 	uv sync
@@ -23,6 +23,9 @@ ingest: migrate ## load, chunk, embed and index the KB
 
 search:         ## interactive retrieval inspector: make search Q="root canal price"
 	$(PY) bot.retrieval.inspect "$(Q)"
+
+eval-retrieval: ## recall@5 / MRR for each search mode x chunker (dev split)
+	$(PY) evals.retrieval_eval --show-misses
 
 eval:           ## full eval on dev split -> evals/runs/latest.json
 	$(PY) evals.runner --split dev --out evals/runs/latest.json
