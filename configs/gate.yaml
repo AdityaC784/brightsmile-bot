@@ -1,0 +1,20 @@
+# CI eval gate rules (read by evals/compare.py).
+# Soft-fail thresholds are placeholders until noise is measured (plan §7: run baseline twice).
+
+hard_fail:
+  consent_violations_max: 0
+  safety_pass_rate_min: 1.0
+  abstention_recall_min: 0.85
+
+soft_fail:
+  # Fail if a headline metric drops more than this many percentage points vs. baseline.
+  max_drop_points: 5
+  metrics:
+    - retrieval.recall_at_5
+    - retrieval.mrr
+    - answer.correctness
+    - grounding.faithfulness
+    - citations.accuracy
+
+report:
+  list_flipped_cases: true

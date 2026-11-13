@@ -1,0 +1,22 @@
+services:
+  db:
+    # Pinned: same image is used by the CI eval gate.
+    image: pgvector/pgvector:0.8.0-pg16
+    container_name: brightsmile-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: brightsmile
+    ports:
+      # Host port 5433 avoids clashing with a locally installed Postgres.
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d brightsmile"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

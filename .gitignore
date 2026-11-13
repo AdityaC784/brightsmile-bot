@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.cache/
+dist/
+build/
+*.egg-info/
+evals/runs/*.json
+!evals/runs/.gitkeep
+comment.md

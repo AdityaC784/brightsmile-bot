@@ -1,0 +1,988 @@
+{
+  "dataset_name": "BrightSmile Dental Care RAG Knowledge Base",
+  "clinic_identity": {
+    "name": "BrightSmile Dental Care",
+    "legal_entity": "BrightSmile Oral Health Pvt. Ltd.",
+    "location": "2nd Floor, Aura Business Plaza, Baner Road, Near Balewadi High Street Junction, Pune, Maharashtra 411045, India",
+    "currency": "INR",
+    "registration_no": "MH-PUN-DEN-2021-0842",
+    "gstin": "27AABCB9999K1Z5"
+  },
+  "schema_version": "1.0",
+  "generated_date": "2026-02-15",
+  "total_documents": 36,
+  "format_breakdown": {
+    "PDF": 11,
+    "DOCX": 10,
+    "Markdown": 10,
+    "CSV": 5
+  },
+  "version_conflict_pairs": [
+    {
+      "active_doc_id": "DENT-019",
+      "active_filename": "18_current_pricing_2026.pdf",
+      "archived_doc_id": "DENT-020",
+      "archived_filename": "19_archived_pricing_2025.pdf",
+      "changed_service_count": 15,
+      "unchanged_service_count": 3
+    }
+  ],
+  "documents": [
+    {
+      "doc_id": "DENT-001",
+      "filename": "00_clinic_profile.pdf",
+      "title": "BrightSmile Dental Care — Institutional Clinic Profile & Overview",
+      "format": "PDF",
+      "category": "Clinic Information",
+      "status": "active",
+      "version": "2.1",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-10",
+      "source_type": "clinic_brochure",
+      "authority": "Chief Endodontist",
+      "tags": [
+        "profile",
+        "overview",
+        "registration",
+        "doctors",
+        "services"
+      ],
+      "related_doc_ids": [
+        "DENT-002",
+        "DENT-003",
+        "DENT-004",
+        "DENT-005",
+        "DENT-019"
+      ]
+    },
+    {
+      "doc_id": "DENT-002",
+      "filename": "01_operating_hours.docx",
+      "title": "Operating Hours, Clinical Session Windows & Holiday Schedule",
+      "format": "DOCX",
+      "category": "Clinic Information",
+      "status": "active",
+      "version": "2.1",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-02-05",
+      "source_type": "operational_policy",
+      "authority": "Clinic Operations Manager",
+      "tags": [
+        "hours",
+        "schedule",
+        "sunday",
+        "holidays",
+        "emergency_slots"
+      ],
+      "related_doc_ids": [
+        "DENT-001",
+        "DENT-003",
+        "DENT-004",
+        "DENT-006",
+        "DENT-011",
+        "DENT-035"
+      ]
+    },
+    {
+      "doc_id": "DENT-003",
+      "filename": "02_location_and_access.md",
+      "title": "Clinic Location, Directions, Parking & Accessibility Guide",
+      "format": "Markdown",
+      "category": "Clinic Information",
+      "status": "active",
+      "version": "1.3",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-02-01",
+      "source_type": "patient_guide",
+      "authority": "Clinic Operations Manager",
+      "tags": [
+        "location",
+        "pune",
+        "baner",
+        "parking",
+        "accessibility"
+      ],
+      "related_doc_ids": [
+        "DENT-001",
+        "DENT-002",
+        "DENT-009",
+        "DENT-035"
+      ]
+    },
+    {
+      "doc_id": "DENT-004",
+      "filename": "03_dental_team.md",
+      "title": "Dental Team Directory, Qualifications & Specialist Schedules",
+      "format": "Markdown",
+      "category": "Clinic Information",
+      "status": "active",
+      "version": "2.2",
+      "effective_date": "2026-01-15",
+      "last_updated": "2026-02-10",
+      "source_type": "staff_directory",
+      "authority": "Chief Endodontist",
+      "tags": [
+        "dentists",
+        "doctors",
+        "qualifications",
+        "specialists",
+        "schedule"
+      ],
+      "related_doc_ids": [
+        "DENT-001",
+        "DENT-002",
+        "DENT-008",
+        "DENT-014",
+        "DENT-016",
+        "DENT-017",
+        "DENT-029"
+      ]
+    },
+    {
+      "doc_id": "DENT-005",
+      "filename": "04_facilities_and_equipment.csv",
+      "title": "Clinical Facilities, Operatories & Diagnostic Equipment Registry",
+      "format": "CSV",
+      "category": "Clinic Information",
+      "status": "active",
+      "version": "1.4",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-20",
+      "source_type": "equipment_registry",
+      "authority": "Clinic Operations Manager",
+      "tags": [
+        "facilities",
+        "equipment",
+        "xray",
+        "opg",
+        "sterilization",
+        "cbct"
+      ],
+      "related_doc_ids": [
+        "DENT-001",
+        "DENT-002",
+        "DENT-014",
+        "DENT-016",
+        "DENT-017"
+      ]
+    },
+    {
+      "doc_id": "DENT-006",
+      "filename": "05_appointment_booking.pdf",
+      "title": "Appointment Booking Guide & Slot-Hold Deposit Rules (POL-BKG-01 / POL-BKG-02)",
+      "format": "PDF",
+      "category": "Appointments",
+      "status": "active",
+      "version": "2.0",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-12",
+      "source_type": "patient_guide",
+      "authority": "Clinic Operations Manager",
+      "tags": [
+        "booking",
+        "appointments",
+        "deposit",
+        "portal",
+        "advance_window"
+      ],
+      "related_doc_ids": [
+        "DENT-002",
+        "DENT-004",
+        "DENT-007",
+        "DENT-008",
+        "DENT-010",
+        "DENT-024"
+      ]
+    },
+    {
+      "doc_id": "DENT-007",
+      "filename": "06_cancellation_policy.docx",
+      "title": "Appointment Cancellation & No-Show Policy (POL-CAN-01)",
+      "format": "DOCX",
+      "category": "Appointments",
+      "status": "active",
+      "version": "2.1",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-12",
+      "source_type": "clinic_policy",
+      "authority": "Clinic Operations Manager",
+      "tags": [
+        "cancellation",
+        "no_show",
+        "fee",
+        "deposit_forfeiture",
+        "POL-CAN-01"
+      ],
+      "related_doc_ids": [
+        "DENT-002",
+        "DENT-006",
+        "DENT-008",
+        "DENT-009",
+        "DENT-024"
+      ]
+    },
+    {
+      "doc_id": "DENT-008",
+      "filename": "07_rescheduling_policy.docx",
+      "title": "Appointment Rescheduling Policy (POL-RES-01)",
+      "format": "DOCX",
+      "category": "Appointments",
+      "status": "active",
+      "version": "2.0",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-12",
+      "source_type": "clinic_policy",
+      "authority": "Clinic Operations Manager",
+      "tags": [
+        "rescheduling",
+        "deadline",
+        "fee",
+        "waiver",
+        "POL-RES-01"
+      ],
+      "related_doc_ids": [
+        "DENT-004",
+        "DENT-006",
+        "DENT-007",
+        "DENT-009"
+      ]
+    },
+    {
+      "doc_id": "DENT-009",
+      "filename": "08_late_arrival_policy.docx",
+      "title": "Patient Late Arrival & Chairside Punctuality Policy (POL-LAT-01)",
+      "format": "DOCX",
+      "category": "Appointments",
+      "status": "active",
+      "version": "1.5",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-12",
+      "source_type": "clinic_policy",
+      "authority": "Clinic Operations Manager",
+      "tags": [
+        "late_arrival",
+        "grace_period",
+        "standby",
+        "POL-LAT-01"
+      ],
+      "related_doc_ids": [
+        "DENT-003",
+        "DENT-007",
+        "DENT-008",
+        "DENT-011",
+        "DENT-025"
+      ]
+    },
+    {
+      "doc_id": "DENT-010",
+      "filename": "09_appointment_reminders.md",
+      "title": "Automated Appointment Reminders & Notification Preferences (POL-REM-01)",
+      "format": "Markdown",
+      "category": "Appointments",
+      "status": "active",
+      "version": "1.2",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-15",
+      "source_type": "operational_guide",
+      "authority": "Clinic Operations Manager",
+      "tags": [
+        "reminders",
+        "sms",
+        "whatsapp",
+        "email",
+        "opt_out",
+        "POL-REM-01"
+      ],
+      "related_doc_ids": [
+        "DENT-006",
+        "DENT-007",
+        "DENT-008",
+        "DENT-027"
+      ]
+    },
+    {
+      "doc_id": "DENT-011",
+      "filename": "10_walk_in_policy.csv",
+      "title": "Walk-In Acceptance Windows & Triage Priority Tiers (POL-WLK-01)",
+      "format": "CSV",
+      "category": "Appointments",
+      "status": "active",
+      "version": "1.4",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-15",
+      "source_type": "triage_rules",
+      "authority": "Clinic Operations Manager",
+      "tags": [
+        "walk_in",
+        "triage",
+        "priority",
+        "wait_time",
+        "POL-WLK-01"
+      ],
+      "related_doc_ids": [
+        "DENT-002",
+        "DENT-009",
+        "DENT-019",
+        "DENT-035"
+      ]
+    },
+    {
+      "doc_id": "DENT-012",
+      "filename": "11_dental_cleaning.pdf",
+      "title": "Professional Dental Cleaning, Scaling & Periodontal Hygiene Guide",
+      "format": "PDF",
+      "category": "Dental Services",
+      "status": "active",
+      "version": "2.0",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-18",
+      "source_type": "service_brochure",
+      "authority": "General Dentistry Lead",
+      "tags": [
+        "cleaning",
+        "scaling",
+        "polishing",
+        "root_planing",
+        "SRV-003"
+      ],
+      "related_doc_ids": [
+        "DENT-018",
+        "DENT-019",
+        "DENT-023",
+        "DENT-034"
+      ]
+    },
+    {
+      "doc_id": "DENT-013",
+      "filename": "12_dental_fillings.pdf",
+      "title": "Tooth-Coloured Composite Dental Fillings & Restorations Guide",
+      "format": "PDF",
+      "category": "Dental Services",
+      "status": "active",
+      "version": "2.0",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-18",
+      "source_type": "service_brochure",
+      "authority": "Chief Endodontist",
+      "tags": [
+        "fillings",
+        "composite",
+        "cavity",
+        "restoration",
+        "SRV-004"
+      ],
+      "related_doc_ids": [
+        "DENT-014",
+        "DENT-019",
+        "DENT-028",
+        "DENT-033"
+      ]
+    },
+    {
+      "doc_id": "DENT-014",
+      "filename": "13_root_canal_treatment.docx",
+      "title": "Root Canal Treatment (Endodontics) — Clinical Service Guide",
+      "format": "DOCX",
+      "category": "Dental Services",
+      "status": "active",
+      "version": "2.1",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-20",
+      "source_type": "clinical_service_guide",
+      "authority": "Chief Endodontist",
+      "tags": [
+        "root_canal",
+        "rct",
+        "endodontics",
+        "molar",
+        "SRV-005"
+      ],
+      "related_doc_ids": [
+        "DENT-004",
+        "DENT-005",
+        "DENT-015",
+        "DENT-019",
+        "DENT-023",
+        "DENT-031"
+      ]
+    },
+    {
+      "doc_id": "DENT-015",
+      "filename": "14_dental_crowns.md",
+      "title": "Dental Crowns & Prosthetic Restorations Guide (PFM & Zirconia)",
+      "format": "Markdown",
+      "category": "Dental Services",
+      "status": "active",
+      "version": "1.6",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-20",
+      "source_type": "service_guide",
+      "authority": "General Dentistry Lead",
+      "tags": [
+        "crowns",
+        "pfm",
+        "zirconia",
+        "warranty",
+        "lab",
+        "SRV-006"
+      ],
+      "related_doc_ids": [
+        "DENT-014",
+        "DENT-019",
+        "DENT-023",
+        "DENT-024"
+      ]
+    },
+    {
+      "doc_id": "DENT-016",
+      "filename": "15_tooth_extraction.md",
+      "title": "Simple & Surgical Tooth Extraction Service Guide",
+      "format": "Markdown",
+      "category": "Dental Services",
+      "status": "active",
+      "version": "1.5",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-22",
+      "source_type": "service_guide",
+      "authority": "Consultant Oral Surgeon",
+      "tags": [
+        "extraction",
+        "wisdom_tooth",
+        "surgery",
+        "impacted",
+        "SRV-007"
+      ],
+      "related_doc_ids": [
+        "DENT-004",
+        "DENT-005",
+        "DENT-006",
+        "DENT-019",
+        "DENT-028",
+        "DENT-032"
+      ]
+    },
+    {
+      "doc_id": "DENT-017",
+      "filename": "16_orthodontic_treatment.pdf",
+      "title": "Orthodontic Treatment Guide — Conventional Braces & Clear Aligners",
+      "format": "PDF",
+      "category": "Dental Services",
+      "status": "active",
+      "version": "2.0",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-25",
+      "source_type": "service_brochure",
+      "authority": "Consultant Orthodontist",
+      "tags": [
+        "orthodontics",
+        "braces",
+        "clear_aligners",
+        "SRV-008"
+      ],
+      "related_doc_ids": [
+        "DENT-004",
+        "DENT-006",
+        "DENT-019",
+        "DENT-021",
+        "DENT-024",
+        "DENT-029"
+      ]
+    },
+    {
+      "doc_id": "DENT-018",
+      "filename": "17_teeth_whitening.pdf",
+      "title": "Professional Teeth Whitening & Cosmetic Shade Enhancement Guide",
+      "format": "PDF",
+      "category": "Dental Services",
+      "status": "active",
+      "version": "1.4",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-25",
+      "source_type": "service_brochure",
+      "authority": "General Dentistry Lead",
+      "tags": [
+        "whitening",
+        "cosmetic",
+        "bleaching",
+        "gst",
+        "SRV-009"
+      ],
+      "related_doc_ids": [
+        "DENT-012",
+        "DENT-019",
+        "DENT-022",
+        "DENT-023"
+      ]
+    },
+    {
+      "doc_id": "DENT-019",
+      "filename": "18_current_pricing_2026.pdf",
+      "title": "2026 Standard Dental Fee Schedule & Tariff Card (Current & Authoritative)",
+      "format": "PDF",
+      "category": "Pricing & Insurance",
+      "status": "active",
+      "version": "2026.1",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-01",
+      "source_type": "fee_schedule",
+      "authority": "Clinic Operations Manager",
+      "tags": [
+        "pricing",
+        "2026",
+        "fees",
+        "tariff",
+        "current",
+        "inr"
+      ],
+      "related_doc_ids": [
+        "DENT-020",
+        "DENT-021",
+        "DENT-022",
+        "DENT-023",
+        "DENT-024"
+      ]
+    },
+    {
+      "doc_id": "DENT-020",
+      "filename": "19_archived_pricing_2025.pdf",
+      "title": "2025 Dental Fee Schedule (ARCHIVED — EXPIRED 31 DEC 2025)",
+      "format": "PDF",
+      "category": "Pricing & Insurance",
+      "status": "archived",
+      "version": "2025.1",
+      "effective_date": "2025-01-01",
+      "last_updated": "2025-12-31",
+      "source_type": "fee_schedule",
+      "authority": "Clinic Operations Manager",
+      "tags": [
+        "pricing",
+        "2025",
+        "archived",
+        "expired",
+        "historical"
+      ],
+      "related_doc_ids": [
+        "DENT-019"
+      ]
+    },
+    {
+      "doc_id": "DENT-021",
+      "filename": "20_payment_methods.csv",
+      "title": "Accepted Payment Methods, Limits, 0% EMI & Corporate OPD Wallets",
+      "format": "CSV",
+      "category": "Pricing & Insurance",
+      "status": "active",
+      "version": "1.3",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-10",
+      "source_type": "billing_reference",
+      "authority": "Clinic Operations Manager",
+      "tags": [
+        "payment",
+        "upi",
+        "card",
+        "cash",
+        "emi",
+        "opd_wallet"
+      ],
+      "related_doc_ids": [
+        "DENT-019",
+        "DENT-022",
+        "DENT-023",
+        "DENT-024"
+      ]
+    },
+    {
+      "doc_id": "DENT-022",
+      "filename": "21_insurance_and_reimbursement.docx",
+      "title": "Dental Insurance, Corporate OPD & Reimbursement Documentation Policy",
+      "format": "DOCX",
+      "category": "Pricing & Insurance",
+      "status": "active",
+      "version": "2.0",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-15",
+      "source_type": "billing_policy",
+      "authority": "Clinic Operations Manager",
+      "tags": [
+        "insurance",
+        "reimbursement",
+        "tpa",
+        "claim_documents",
+        "opd"
+      ],
+      "related_doc_ids": [
+        "DENT-001",
+        "DENT-019",
+        "DENT-021",
+        "DENT-023",
+        "DENT-026"
+      ]
+    },
+    {
+      "doc_id": "DENT-023",
+      "filename": "22_treatment_packages.csv",
+      "title": "2026 Bundled Dental Treatment Packages Catalog",
+      "format": "CSV",
+      "category": "Pricing & Insurance",
+      "status": "active",
+      "version": "2026.1",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-05",
+      "source_type": "package_catalog",
+      "authority": "Clinic Operations Manager",
+      "tags": [
+        "packages",
+        "bundles",
+        "preventive",
+        "rct_crown",
+        "kids_package"
+      ],
+      "related_doc_ids": [
+        "DENT-019",
+        "DENT-021",
+        "DENT-024"
+      ]
+    },
+    {
+      "doc_id": "DENT-024",
+      "filename": "23_refund_and_billing_policy.csv",
+      "title": "Billing Reconciliation, Deposit Refund & Package Cancellation Rules",
+      "format": "CSV",
+      "category": "Pricing & Insurance",
+      "status": "active",
+      "version": "2.0",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-10",
+      "source_type": "billing_policy",
+      "authority": "Clinic Operations Manager",
+      "tags": [
+        "refund",
+        "billing",
+        "pro_rata",
+        "lab_fee",
+        "timeline"
+      ],
+      "related_doc_ids": [
+        "DENT-006",
+        "DENT-007",
+        "DENT-015",
+        "DENT-017",
+        "DENT-019",
+        "DENT-023"
+      ]
+    },
+    {
+      "doc_id": "DENT-025",
+      "filename": "24_new_patient_registration.pdf",
+      "title": "New Patient Registration, ID Proof & Medical Disclosure Policy (POL-REG-01)",
+      "format": "PDF",
+      "category": "Clinic Policies",
+      "status": "active",
+      "version": "1.5",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-08",
+      "source_type": "patient_policy",
+      "authority": "Clinic Operations Manager",
+      "tags": [
+        "registration",
+        "new_patient",
+        "id_proof",
+        "medical_history"
+      ],
+      "related_doc_ids": [
+        "DENT-002",
+        "DENT-009",
+        "DENT-026",
+        "DENT-027",
+        "DENT-029"
+      ]
+    },
+    {
+      "doc_id": "DENT-026",
+      "filename": "25_patient_records_policy.docx",
+      "title": "Patient Clinical Records Retention & Access Policy (POL-REC-01)",
+      "format": "DOCX",
+      "category": "Clinic Policies",
+      "status": "active",
+      "version": "1.4",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-08",
+      "source_type": "governance_policy",
+      "authority": "Clinic Operations Manager",
+      "tags": [
+        "records",
+        "retention",
+        "dicom",
+        "xrays",
+        "turnaround"
+      ],
+      "related_doc_ids": [
+        "DENT-022",
+        "DENT-025",
+        "DENT-027",
+        "DENT-029"
+      ]
+    },
+    {
+      "doc_id": "DENT-027",
+      "filename": "26_privacy_and_data_handling.docx",
+      "title": "Patient Privacy & Personal Data Protection Policy (POL-PRV-01)",
+      "format": "DOCX",
+      "category": "Clinic Policies",
+      "status": "active",
+      "version": "2.0",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-08",
+      "source_type": "compliance_policy",
+      "authority": "Data Privacy Officer",
+      "tags": [
+        "privacy",
+        "dpdp_act",
+        "confidentiality",
+        "data_sharing"
+      ],
+      "related_doc_ids": [
+        "DENT-010",
+        "DENT-025",
+        "DENT-026",
+        "DENT-036"
+      ]
+    },
+    {
+      "doc_id": "DENT-028",
+      "filename": "27_informed_consent_policy.docx",
+      "title": "Clinical Informed Consent Policy (POL-CON-01)",
+      "format": "DOCX",
+      "category": "Clinic Policies",
+      "status": "active",
+      "version": "1.3",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-08",
+      "source_type": "clinical_governance",
+      "authority": "Chief Endodontist",
+      "tags": [
+        "consent",
+        "risks",
+        "alternatives",
+        "FRM-CON-01"
+      ],
+      "related_doc_ids": [
+        "DENT-014",
+        "DENT-016",
+        "DENT-019",
+        "DENT-024",
+        "DENT-025",
+        "DENT-029"
+      ]
+    },
+    {
+      "doc_id": "DENT-029",
+      "filename": "28_children_and_guardians_policy.md",
+      "title": "Paediatric Patients, Minor Accompaniment & Legal Guardian Consent Policy (POL-PED-01)",
+      "format": "Markdown",
+      "category": "Clinic Policies",
+      "status": "active",
+      "version": "1.5",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-12",
+      "source_type": "patient_policy",
+      "authority": "Consultant Paediatric Dentist",
+      "tags": [
+        "children",
+        "minors",
+        "guardian",
+        "consent",
+        "authorization"
+      ],
+      "related_doc_ids": [
+        "DENT-004",
+        "DENT-017",
+        "DENT-025",
+        "DENT-026",
+        "DENT-028"
+      ]
+    },
+    {
+      "doc_id": "DENT-030",
+      "filename": "29_patient_complaints.md",
+      "title": "Patient Feedback, Grievance Redressal & Escalation Policy (POL-CMP-01)",
+      "format": "Markdown",
+      "category": "Clinic Policies",
+      "status": "active",
+      "version": "1.2",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-12",
+      "source_type": "grievance_policy",
+      "authority": "Clinic Operations Manager",
+      "tags": [
+        "complaints",
+        "grievance",
+        "escalation",
+        "sla",
+        "feedback"
+      ],
+      "related_doc_ids": [
+        "DENT-001",
+        "DENT-004",
+        "DENT-024",
+        "DENT-036"
+      ]
+    },
+    {
+      "doc_id": "DENT-031",
+      "filename": "30_root_canal_aftercare.pdf",
+      "title": "Root Canal Treatment (RCT) Post-Procedure Aftercare Guide",
+      "format": "PDF",
+      "category": "Aftercare & Safety",
+      "status": "active",
+      "version": "1.4",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-20",
+      "source_type": "aftercare_sheet",
+      "authority": "Chief Endodontist",
+      "tags": [
+        "aftercare",
+        "root_canal",
+        "temporary_filling",
+        "crown_timing"
+      ],
+      "related_doc_ids": [
+        "DENT-014",
+        "DENT-015",
+        "DENT-035",
+        "DENT-036"
+      ]
+    },
+    {
+      "doc_id": "DENT-032",
+      "filename": "31_extraction_aftercare.pdf",
+      "title": "Tooth Extraction & Oral Surgery Post-Operative Aftercare Guide",
+      "format": "PDF",
+      "category": "Aftercare & Safety",
+      "status": "active",
+      "version": "1.5",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-20",
+      "source_type": "aftercare_sheet",
+      "authority": "Consultant Oral Surgeon",
+      "tags": [
+        "aftercare",
+        "extraction",
+        "bleeding",
+        "dry_socket",
+        "gauze"
+      ],
+      "related_doc_ids": [
+        "DENT-016",
+        "DENT-035",
+        "DENT-036"
+      ]
+    },
+    {
+      "doc_id": "DENT-033",
+      "filename": "32_filling_aftercare.docx",
+      "title": "Dental Filling (Composite Restoration) Post-Procedure Aftercare Guide",
+      "format": "DOCX",
+      "category": "Aftercare & Safety",
+      "status": "active",
+      "version": "1.3",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-20",
+      "source_type": "aftercare_sheet",
+      "authority": "General Dentistry Lead",
+      "tags": [
+        "aftercare",
+        "filling",
+        "numbness",
+        "bite_adjustment"
+      ],
+      "related_doc_ids": [
+        "DENT-013",
+        "DENT-014",
+        "DENT-029",
+        "DENT-035",
+        "DENT-036"
+      ]
+    },
+    {
+      "doc_id": "DENT-034",
+      "filename": "33_cleaning_aftercare.md",
+      "title": "Dental Cleaning (Scaling & Polishing) Post-Procedure Aftercare Guide",
+      "format": "Markdown",
+      "category": "Aftercare & Safety",
+      "status": "active",
+      "version": "1.2",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-01-20",
+      "source_type": "aftercare_sheet",
+      "authority": "General Dentistry Lead",
+      "tags": [
+        "aftercare",
+        "scaling",
+        "sensitivity",
+        "staining",
+        "hygiene"
+      ],
+      "related_doc_ids": [
+        "DENT-012",
+        "DENT-018",
+        "DENT-035"
+      ]
+    },
+    {
+      "doc_id": "DENT-035",
+      "filename": "34_dental_emergency_guidance.md",
+      "title": "Dental Emergency Triage & Medical Red-Flag Escalation Protocol (ESC-01 to ESC-04)",
+      "format": "Markdown",
+      "category": "Aftercare & Safety",
+      "status": "active",
+      "version": "2.1",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-02-25",
+      "source_type": "safety_protocol",
+      "authority": "Chief Endodontist",
+      "tags": [
+        "emergency",
+        "red_flags",
+        "trauma",
+        "avulsed_tooth",
+        "112"
+      ],
+      "related_doc_ids": [
+        "DENT-002",
+        "DENT-003",
+        "DENT-011",
+        "DENT-031",
+        "DENT-032",
+        "DENT-036"
+      ]
+    },
+    {
+      "doc_id": "DENT-036",
+      "filename": "35_human_escalation_policy.md",
+      "title": "AI Assistant Clinical Boundaries, Abstention & Human Escalation Policy (POL-ESC-01)",
+      "format": "Markdown",
+      "category": "Aftercare & Safety",
+      "status": "active",
+      "version": "2.2",
+      "effective_date": "2026-01-01",
+      "last_updated": "2026-02-15",
+      "source_type": "ai_guardrails",
+      "authority": "Clinic Operations & Clinical Lead",
+      "tags": [
+        "escalation",
+        "ai_boundaries",
+        "abstention",
+        "human_handoff"
+      ],
+      "related_doc_ids": [
+        "DENT-019",
+        "DENT-022",
+        "DENT-027",
+        "DENT-030",
+        "DENT-035"
+      ]
+    }
+  ]
+}

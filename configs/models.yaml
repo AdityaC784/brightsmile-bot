@@ -1,0 +1,42 @@
+# Every model ID lives here so swapping providers is a config change, not a code change.
+# Provider model catalogs change often (Groq retired Llama 3.x in Aug 2026) —
+# run `python -m bot.llm.check_models` after adding keys to verify these IDs are live.
+
+roles:
+  # Writes the grounded, cited answer the patient sees.
+  # Qwen chosen over openai/gpt-oss-120b (2026-11-13 side-by-side on a cited-answer prompt):
+  # gpt-oss emitted 【】 instead of [] citations and U+2011 non-breaking hyphens inside IDs
+  # (SRV‑005A), which would break exact-ID citation checks; Qwen followed the format and was faster.
+  # Uses its own Groq key (GROQ_GENERATOR_API_KEY) if set, else falls back to GROQ_API_KEY.
+  generator:
+    provider: groq
+    model: qwen/qwen3.8-27b
+    api_key_setting: groq_generator_api_key
+    max_tokens: 1024
+    temperature: 0
+
+  # Cheap/fast utility calls: intent classification, follow-up question rewriting, slot extraction.
+  utility:
+    provider: groq
+    model: openai/gpt-oss-20b
+    max_tokens: 512
+    temperature: 0
+
+  # Eval judge — deliberately a different model family than the generator
+  # (reduces self-preference bias). Temperature 0. Pinned (verified 2026-11-13):
+  # `gemini-flash-latest` 404s, 2.5-flash is retired for new keys, 3.7/3.8-flash were
+  # returning 503/504 under load. Fallback if 3.6 is overloaded: gemini-3.5-flash-lite.
+  # Thinking tokens count toward the output budget, hence the larger max_tokens.
+  judge:
+    provider: gemini
+    model: gemini-3.6-flash
+    max_tokens: 2048
+    temperature: 0
+
+embeddings:
+  provider: gemini
+  model: gemini-embedding-001
+  # Matryoshka-truncated to 768 dims: pgvector HNSW indexes cap at 2000 dims,
+  # and 768 keeps storage small. Truncated vectors are L2-normalised before storing.
+  dimensions: 768
+  batch_size: 50

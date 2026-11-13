@@ -1,0 +1,7 @@
+﻿payment_method_id,method_name,supported_providers,min_invoice_inr,max_invoice_inr,patient_surcharge_pct,settlement_timing,special_conditions,status
+PAY-01,Unified Payments Interface (UPI),Google Pay;PhonePe;Paytm;BHIM QR;All UPI Apps,1,100000,0,Instant real-time confirmation,Subject to standard NPCI daily bank UPI transaction cap of INR 100000,active
+PAY-02,Credit & Debit Cards,Visa;Mastercard;RuPay;American Express,1,500000,0,Instant POS terminal authorization,Zero MDR surcharge passed to patients; physical chip-and-PIN or tap card required,active
+PAY-03,NEFT / RTGS / IMPS Bank Transfer,All Indian Scheduled Commercial Banks,5000,1000000,0,Same-day UTR clearance prior to discharge,Accepted for treatment estimates of INR 5000 or above; UTR reference required,active
+PAY-04,Cash (Indian Rupees - INR),Reserve Bank of India Legal Tender Notes,1,199999,0,Immediate at reception billing desk,Hard cap of INR 199999 per treatment episode per Section 269ST Income Tax Act; PAN mandatory at INR 50000 or above,active
+PAY-05,0% Interest Healthcare EMI,Bajaj Finserv Health EMI Card;HDFC Credit Cards;ICICI Credit Cards,10000,300000,0,Instant POS EMI conversion at billing desk,Available on single invoices of INR 10000 or above across 3-month 6-month or 9-month tenures,active
+PAY-06,Corporate OPD Wallet Direct Billing,MediBuddy OPD Card;Vidal Health OPD Wallet,1,100000,0,Live pre-authorization at reception,Available only for partnered corporate group plans with active OPD dental wallet balance,active

@@ -1,0 +1,19 @@
+﻿equipment_id,asset_name,category,room_location,manufacturer_model,clinical_purpose,availability_status,last_calibration_date,next_maintenance_due
+EQP-001,Endodontic & Micro-Restorative Dental Chair Suite,Operatory Suite,OP-01,A-dec 500 Pro Series,Primary chairside workstation for root canals and micro-restorations,active,2026-01-05,2026-07-05
+EQP-002,Carl Zeiss Dental Operating Microscope,Optical Magnification,OP-01,Zeiss EXTARO 300,High-magnification visualization for calcified canals and micro-endodontics,active,2026-01-08,2026-07-08
+EQP-003,Electronic Apex Locator & Rotary Endomotor,Endodontic Instrumentation,OP-01,J. Morita Root ZX II / X-Smart Plus,Root canal working-length measurement and nickel-titanium canal shaping,active,2026-01-10,2026-07-10
+EQP-004,Oral Surgery & Implant Operatory Chair Suite,Operatory Suite,OP-02,Planmeca Sovereign Classic,Dedicated surgical workstation for wisdom tooth extractions and minor oral surgery,active,2026-01-05,2026-07-05
+EQP-005,Digital Intraoral RVG X-Ray Sensor System,Diagnostic Imaging,OP-01 / OP-02,Carestream RVG 6200,Low-radiation single-tooth and periapical digital radiographs,active,2026-01-12,2026-07-12
+EQP-006,Digital Full-Mouth OPG Panoramic X-Ray Unit,Diagnostic Imaging,Imaging Bay,Vatech PaX-i2D,Full-arch panoramic dental and jaw screening radiograph,active,2026-01-12,2026-07-12
+EQP-007,Class-B Vacuum Steam Autoclave Sterilizer,Infection Control,Sterilization Zone,Euronda E10 Class-B (24L),Fractionated pre-vacuum sterilization of wrapped hollow and surgical instruments,active,2026-01-15,2026-04-15
+EQP-008,Ultrasonic Instrument Washer & Thermal Disinfector,Infection Control,Sterilization Zone,Miele PG 8581 Dental,Automated pre-sterilization enzymatic cleaning and thermal disinfection,active,2026-01-15,2026-07-15
+EQP-009,HEPA-14 Air Filtration & Extraoral Aerosol Scavenger,Air Quality & Safety,OP-01 to OP-04,IQAir Dental Hg FlexVac,Continuous chairside capture of aerosols and particulate matter,active,2026-01-10,2026-07-10
+EQP-010,Piezotome Ultrasonic Bone Surgery Unit,Surgical Instrumentation,OP-02,Acteon Piezotome Cube,Minimally invasive ultrasonic osteotomy for impacted third-molar surgery,active,2026-01-09,2026-07-09
+EQP-011,Multipara Vital Signs Monitor & Pulse Oximeter,Patient Monitoring,OP-02,Philips SureSigns VM6,"Continuous SpO2, NIBP, and ECG monitoring during surgical procedures",active,2026-01-06,2026-07-06
+EQP-012,3D Intraoral Optical Scanner,Digital Impressions,OP-03,Align Technology iTero Element 5D,"Digital 3D arch scanning for clear aligners, crowns, and orthodontic records",active,2026-01-11,2026-07-11
+EQP-013,Orthodontics & General Dentistry Operatory Suite,Operatory Suite,OP-03,A-dec 300 Chair System,"Chairside workstation for orthodontic bonding, clear aligner checks, and restorations",active,2026-01-05,2026-07-05
+EQP-014,In-Office LED Power Whitening Lamp,Cosmetic Dentistry,OP-03,Philips Zoom WhiteSpeed LED,Light-activated chairside enamel whitening system,active,2026-01-14,2026-07-14
+EQP-015,Paediatric & Preventive Hygiene Operatory Suite,Operatory Suite,OP-04,Belmont Clesta II Paediatric,Child-ergonomic dental workstation for preventive and paediatric procedures,active,2026-01-05,2026-07-05
+EQP-016,Ultrasonic Piezo Scaler & Air-Polishing Unit,Preventive Hygiene,OP-04,EMS Airflow Prophylaxis Master,"Supragingival and subgingival biofilm removal, scaling, and stain polishing",active,2026-01-14,2026-07-14
+EQP-017,In-House 3D CBCT Cone-Beam Scanner,Diagnostic Imaging,External Partner,Not Installed On-Site,External referral to partnered Pune diagnostic center for 3D CBCT volume scans,not_available_on_site,2026-01-01,2026-12-31
+EQP-018,Emergency Medical Resuscitation & Oxygen Kit,Emergency Preparedness,Central Triage Bay,Laerdal / BPL Defibrillator & O2,"Medical oxygen cylinder, AED, and emergency anaphylaxis/syncope response kit",active,2026-01-02,2026-04-02

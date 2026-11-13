@@ -1,0 +1,5 @@
+# Keep LF everywhere so file bytes (and therefore kb_version) match between Windows and Linux CI.
+* text=auto eol=lf
+*.pdf  binary
+*.docx binary
+*.png  binary
