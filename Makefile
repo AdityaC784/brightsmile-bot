@@ -3,7 +3,7 @@
 
 PY := uv run python -m
 
-.PHONY: setup db-up db-down migrate ingest search eval-retrieval eval eval-ci eval-baseline judge-export judge-score review serve test lint fmt
+.PHONY: setup db-up db-down migrate ingest search eval-retrieval eval eval-ci eval-baseline judge-export judge-score chat review serve test lint fmt
 
 setup:          ## install deps + git hooks
 	uv sync
@@ -44,6 +44,9 @@ judge-score:    ## judge vs your labels: agreement + Cohen's kappa
 
 review:         ## review feedback candidates -> golden set
 	$(PY) evals.review_cli
+
+chat:           ## talk to the bot in the terminal (state saved in Postgres)
+	$(PY) bot.graph.chat --debug
 
 serve:          ## run the API locally
 	uv run uvicorn bot.api.main:app --reload --port 8000

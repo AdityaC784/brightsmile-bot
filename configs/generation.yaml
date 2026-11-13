@@ -31,6 +31,13 @@ emergency_fallback_answer: >-
   (Mon–Sat, 09:30 AM – 08:30 PM, calling +91-20-5550-0140 on the way) or, on Sundays and after
   hours, go to a hospital dental emergency department.
 
+lead:
+  # Shown before any personal details are taken; stored with the lead as the consent record.
+  consent_text: >-
+    Would you like our team to contact you about this? If yes, please reply with your name and a
+    phone number or email. We'll use them only to follow up on this enquiry, never share or sell
+    them, and you can ask us to delete them at any time.
+
 verification:
   # Experiment switch (plan §7: with vs without citation verification).
   enabled: true

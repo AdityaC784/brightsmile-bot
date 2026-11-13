@@ -179,6 +179,9 @@ class Answerer:
         expand = getattr(self.retriever, "expand_references", None)
         if expand is not None:
             hits = expand(hits)
+        expand_tariff = getattr(self.retriever, "expand_tariff", None)
+        if expand_tariff is not None:
+            hits = expand_tariff(hits, query or question)
         timings["retrieve_ms"] = int((time.perf_counter() - t0) * 1000)
 
         sources_block, source_texts = format_sources(hits)

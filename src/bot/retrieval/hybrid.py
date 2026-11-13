@@ -27,6 +27,7 @@ Mode = Literal["hybrid", "lexical", "dense"]
 # Codes that name a single CSV row chunk (refund rules, packages, payment methods, walk-in
 # tiers, equipment). Used for one-hop reference expansion.
 ROW_CODE = re.compile(r"\b(?:REF|PKG|PAY|WLK|EQP)-[A-Z0-9]+\b")
+SERVICE_CODE = re.compile(r"\bSRV-\d{3}[A-Z]?\b")
 
 
 @dataclass
@@ -161,4 +162,48 @@ class HybridRetriever:
             ).fetchall()
         by_code = {r[1].split("#", 1)[1]: r for r in rows}
         extra = [Hit(*by_code[c], 0.0, None, None) for c in wanted if c in by_code][:limit]
+        return hits + extra
+
+    def expand_tariff(
+        self, hits: list[Hit], query: str = "", *, limit: int | None = None
+    ) -> list[Hit]:
+        """Add the authoritative price-list chunk(s) for service codes that matter here.
+
+        Service codes come only from the query and from package rows — e.g. PKG-002 lists
+        "1x SRV-005A; 1x SRV-006A; 2x SRV-002". Each code pulls the active tariff chunk
+        (search.tariff_doc_id) holding its own "Service ID:" row.
+        """
+        s = self.cfg["search"]
+        limit = s.get("expand_tariff", 0) if limit is None else limit
+        tariff_doc = s.get("tariff_doc_id")
+        if not limit or not tariff_doc:
+            return hits
+        # Codes come from the question and from package rows only (packages list their included
+        # services; their prices are what package/refund maths needs). Other rows and prose
+        # mention codes in passing and would pull the tariff into unrelated answers.
+        texts = [query] + [h.content for h in hits if h.doc_id.split("#")[-1].startswith("PKG-")]
+        codes = list(dict.fromkeys(c for t in texts for c in SERVICE_CODE.findall(t)))
+        have = {h.doc_id for h in hits}
+        if not codes:
+            return hits
+        with psycopg.connect(self.database_url) as conn:
+            rows = conn.execute(
+                """SELECT id, doc_id, source_doc_id, title, section, content, status
+                   FROM chunks
+                   WHERE tenant_id = %s AND chunker = %s AND source_doc_id = %s
+                     AND status = 'active'
+                   ORDER BY id""",
+                (get_settings().tenant_id, self.cfg["chunking"]["strategy"], tariff_doc),
+            ).fetchall()
+        extra: list[Hit] = []
+        for code in codes:
+            # The chunk holding this code's own tariff row, not one that merely mentions it.
+            pat = re.compile(rf"Service ID: {re.escape(code)}(?![A-Za-z0-9])")
+            for r in rows:
+                if r[1] not in have and pat.search(r[5]):
+                    extra.append(Hit(*r, 0.0, None, None))
+                    have.add(r[1])
+                    break
+            if len(extra) >= limit:
+                break
         return hits + extra
