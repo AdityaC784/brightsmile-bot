@@ -234,3 +234,16 @@ Removed before the re-measure, so it measures the system we intend to keep (−2
 Kept (general, evidence beyond one case): repair loop, emergency stickiness, private `working`
 field, question-aware verification, reference expansion, weighted RRF. Retrieval unchanged
 after removal (dev hybrid/heading 0.93 / 0.82). q-016 remains a known limitation.
+
+### 3b. Prompt cleanup (2026-11-13)
+
+- Removed dev-case wording used as prompt examples (q-020 "authorised adult… alone", q-024
+  "may indicate pulpitis") from the answer, verifier and judge prompts; replaced with generic
+  examples. A test now fails if golden-set phrases appear in any prompt.
+- Answer prompt: rule 4 now pairs each "never" with its safe alternative (slot → clinician days;
+  symptom/medicine → exam + red-flag route; insurance → not guaranteed); the separate slot rule
+  was merged in (11 → 10 rules, 626 → 589 words).
+- Clinic name, phone numbers, links and emergency contacts are rendered into every prompt from
+  `configs/generation.yaml` (`bot.prompts.clinic_prompt`); none are hard-coded in prompt files.
+
+This is the prompt set tomorrow's frozen re-measure evaluates.

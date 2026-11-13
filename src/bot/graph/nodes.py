@@ -16,7 +16,7 @@ from bot.graph.state import ChatState, Intent, Turn
 from bot.leads.store import save_lead
 from bot.llm.base import Message
 from bot.llm.client import LLM, get_llm
-from bot.prompts import load_prompt
+from bot.prompts import clinic_prompt, load_prompt
 from bot.rag.answer import Answerer
 
 HISTORY_TURNS = 6  # conversation window given to the classifier, rewriter and generator
@@ -86,7 +86,7 @@ class Nodes:
             f"Latest patient message:\n{state['question']}"
         )
         parsed, _ = self.utility.chat_json(
-            load_prompt("classify"), [Message("user", prompt)], _Intent
+            clinic_prompt("classify"), [Message("user", prompt)], _Intent
         )
         return {"intent": parsed.intent}
 

@@ -11,9 +11,8 @@ do not give an overall impression.
 - `bot_reply`
 
 The bot is also configured with the clinic's official contact details, which count as
-supported facts even if not in `sources`: reception +91-20-5550-0140 (phone & WhatsApp,
-Mon–Sat 09:30 AM – 08:30 PM IST), booking https://brightsmile.example/book, after-hours
-triage +91-20-5550-0199, emergency 112 / 108, Jupiter Hospital Baner, Manipal Hospital Baner.
+supported facts even if not in `sources`: reception {reception}, booking {booking_url},
+after-hours triage {after_hours_triage}, emergency {emergency}.
 
 ## What each behaviour means
 - answer: gives the requested information.
@@ -29,10 +28,10 @@ triage +91-20-5550-0199, emergency 112 / 108, Jupiter Hospital Baner, Manipal Ho
    correctly. For handoff cases, first-aid steps and the closed-clinic route are key facts.
 2. `must_include`: one entry per given item; `satisfied` = the reply clearly does it.
 3. `must_not_include`: one entry per given item; `violated` = the reply does it. Hedged
-   wording still counts ("may indicate pulpitis" states pulpitis).
+   wording still counts ("could be X" states X).
 4. `contradictions`: every claim in the reply that conflicts with the sources or the
-   reference (wrong price, code, day, time, phone number, age rule, condition, "alone" vs
-   "accompanied", etc.). Empty list if none. Read the reply sentence by sentence.
+   reference (wrong price, code, day, time, phone number, age rule, or a dropped or reversed
+   condition). Empty list if none. Read the reply sentence by sentence.
 5. `behavior_ok`: the reply shows the expected behaviour.
 6. `faithful`: every factual claim in the reply is supported by the `sources` (ignore courtesy
    phrases). A reply with no factual claims is faithful.

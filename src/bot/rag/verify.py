@@ -19,7 +19,7 @@ from pydantic import BaseModel
 
 from bot.llm.base import Message
 from bot.llm.client import LLM, get_llm
-from bot.prompts import load_prompt
+from bot.prompts import clinic_prompt
 
 CITE = re.compile(r"\[(S\d+)\]")
 # Prices like ₹1,800 / ₹ 6,800 / INR 500 and clinic identifiers like SRV-005A, ESC-01, FRM-PED-03.
@@ -169,7 +169,7 @@ def _check(
             f"count as given):\n{question}\n\n"
         )
     parsed, _ = llm.chat_json(
-        load_prompt("verify"), [Message("user", header + "\n\n".join(blocks))], _Results
+        clinic_prompt("verify"), [Message("user", header + "\n\n".join(blocks))], _Results
     )
     by_idx = {r.claim: r for r in parsed.results}
     # Some replies number claims from 0; if the count matches, fall back to position.

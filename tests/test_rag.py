@@ -239,3 +239,19 @@ def test_calculated_totals_are_rejected_and_fall_back():
     ok, why = facts_in_text("You lose INR 12,750 in total [S1].", src)
     assert not ok and "12,750" in why
     assert facts_in_text("The molar root canal is INR 6,800 [S1].", src) == (True, "")
+
+
+def test_prompts_render_from_config_without_leaks():
+    """Every prompt renders with no unresolved placeholders; clinic facts live only in config;
+    no golden-set case wording is used as a prompt example (teaching to the test)."""
+    import re
+
+    from bot.prompts import PROMPTS_DIR, clinic_prompt
+
+    leaked = ["authorised adult", "pulpitis", "SRV-005A", "12,750", "Ruby Hall"]
+    for path in PROMPTS_DIR.glob("*.md"):
+        raw = path.read_text(encoding="utf-8")
+        assert "5550-0140" not in raw and "brightsmile.example" not in raw, path.name
+        assert not [w for w in leaked if w in raw], path.name
+        rendered = clinic_prompt(path.stem)
+        assert not re.findall(r"\{[a-z_]+\}", rendered), path.name

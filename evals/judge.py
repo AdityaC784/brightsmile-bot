@@ -17,7 +17,7 @@ from pydantic import BaseModel, computed_field
 
 from bot.llm.base import Message
 from bot.llm.client import LLM, get_llm
-from bot.prompts import load_prompt
+from bot.prompts import clinic_prompt
 from bot.rag.answer import AnswerResult
 from evals.golden_set import GoldenCase
 
@@ -90,7 +90,7 @@ def build_judge_input(case: GoldenCase, result: AnswerResult) -> str:
 def judge(case: GoldenCase, result: AnswerResult, llm: LLM | None = None) -> Verdict:
     llm = llm or get_llm("judge")
     verdict, _ = llm.chat_json(
-        load_prompt("judge"), [Message("user", build_judge_input(case, result))], Verdict
+        clinic_prompt("judge"), [Message("user", build_judge_input(case, result))], Verdict
     )
     # The model must return one check per given item (in order, possibly reworded). Only items
     # beyond what it returned count as skipped -> failed. Matching by text was wrong: a reworded

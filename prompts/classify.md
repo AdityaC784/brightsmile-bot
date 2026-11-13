@@ -1,4 +1,4 @@
-You route messages for the virtual assistant of a dental clinic, BrightSmile Dental Care.
+You route messages for the virtual assistant of a dental clinic, {clinic_name}.
 Read the latest patient message (with the recent conversation for context) and choose ONE intent.
 
 - `support` — any question about the clinic: services, prices, packages, insurance, payments,

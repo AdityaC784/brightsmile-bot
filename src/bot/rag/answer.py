@@ -19,7 +19,7 @@ from pydantic import BaseModel, field_validator
 from bot.config import load_yaml
 from bot.llm.base import Message
 from bot.llm.client import LLM, get_llm
-from bot.prompts import render_prompt
+from bot.prompts import clinic_prompt
 from bot.rag.verify import CITE, Verification, verify_answer
 from bot.retrieval.hybrid import Hit, HybridRetriever
 
@@ -115,10 +115,7 @@ class Answerer:
 
     @cached_property
     def system_prompt(self) -> str:
-        c = self.cfg["clinic"]
-        return render_prompt(
-            "answer", clinic_name=c["name"], reception=c["reception"], booking_url=c["booking_url"]
-        )
+        return clinic_prompt("answer")
 
     def _fallback(
         self, result: AnswerResult, reason: str, *, emergency: bool = False
