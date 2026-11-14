@@ -295,3 +295,8 @@ Failing: q-015, q-016, q-024 (as before); q-035, q-037, q-038, q-041 (new — om
 details; no unsupported facts). Noted, not fixed: q-043 errored on Groq's per-minute input limit
 (not scored); q-047 abstained correctly but failed a checklist item whose wording ("… / care is
 at the Baner Road clinic") the judge read as requiring both halves.
+
+**Update (golden 0.6.1):** q-047 checklist reworded (see CHANGELOG) and the baseline re-scored.
+q-047 now passes; q-043 ran this time (0 errors) and failed — it omitted the ≥24 h full-refund
+tier. Baseline: correctness **0.84 (42/50)**; failing q-015, q-016, q-024, q-035, q-037, q-038,
+q-041, q-043.
