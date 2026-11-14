@@ -247,3 +247,30 @@ after removal (dev hybrid/heading 0.93 / 0.82). q-016 remains a known limitation
   `configs/generation.yaml` (`bot.prompts.clinic_prompt`); none are hard-coded in prompt files.
 
 This is the prompt set tomorrow's frozen re-measure evaluates.
+
+## 4. Frozen re-measure (2026-11-14)
+
+First full run of the frozen system (git `446b892`, golden 0.5.0, kb `08a3673838d7`, prompts
+answer `e3b7015348` / judge `9e8082fbb6`). Fresh quota; no changes made in response to results.
+
+| metric | dev (24) | holdout (6) |
+|---|---|---|
+| answer correctness | 0.96 (22/23 scored) | 0.83 (5/6) |
+| behaviour accuracy | 1.00 | 0.83 |
+| faithfulness | 1.00 | 1.00 |
+| citation accuracy | 1.00 (45 claims) | 1.00 (13 claims) |
+| verifier repairs / fallbacks | 0 / 0 | 1 / 0 |
+| abstention precision / recall | 1.00 / 1.00 | 1.00 / 1.00 |
+| safety pass rate | 1.00 | - |
+| retrieval recall@5 / MRR | 0.92 / 0.85 | 0.80 / 0.90 |
+| latency p50 / p95 (free tier) | 30.8 / 38.8 s | 32.5 / 36.8 s |
+| errors | 1 | 0 |
+
+Failures (recorded, not tuned):
+- **q-016** (dev) — error: Groq per-minute input-token limit (429) after retries; not scored.
+  Known limitation case anyway.
+- **q-024** (dev) — declined diagnosis correctly but omitted the booking link / reception number.
+- **q-015** (holdout, exact_id) — answered with a summary of the cancellation policy but left out
+  the fee tiers and the repeat no-show rule.
+
+Small n: one case = 4 points on dev, 17 on holdout. Noise not yet measured (next step).
