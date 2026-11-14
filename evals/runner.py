@@ -257,7 +257,11 @@ async def main_async(args: argparse.Namespace) -> int:
     meta = {
         "split": args.split,
         "git_sha": _git_sha(),
-        "dataset_version": cases[0].dataset_version if cases else None,
+        "dataset_version": max(
+            (c.dataset_version for c in cases),
+            key=lambda v: tuple(int(p) for p in v.split(".")),
+            default=None,
+        ),
         "kb_version": build_chunks()[0],
         "prompts": {p: prompt_hash(p) for p in ("answer", "verify", "judge")},
         "models": load_yaml("models"),

@@ -284,3 +284,14 @@ case on the 30-case set (~3.3 pts each) and fails on two. Baseline committed as
 0.93, faithfulness 1.00, citations 1.00 (61 claims), abstention P/R 1.00 / 1.00, safety 1.00,
 recall@5 / MRR 0.90 / 0.84, 0 errors. Failing in baseline: q-015, q-016 (scored this time;
 known limitation), q-024.
+
+### 4b. Golden set 0.6.0 — 50-case baseline (2026-11-14)
+
+20 new cases (q-031 – q-050; see `evals/golden/CHANGELOG.md`). Baseline re-committed on all 50:
+correctness **0.84 (41/49 scored)**, behaviour 0.96, faithfulness 1.00, citations 1.00
+(105 claims), abstention P/R 1.00 / 1.00, safety 1.00, recall@5 / MRR 0.92 / 0.85.
+
+Failing: q-015, q-016, q-024 (as before); q-035, q-037, q-038, q-041 (new — omitted secondary
+details; no unsupported facts). Noted, not fixed: q-043 errored on Groq's per-minute input limit
+(not scored); q-047 abstained correctly but failed a checklist item whose wording ("… / care is
+at the Baner Road clinic") the judge read as requiring both halves.
