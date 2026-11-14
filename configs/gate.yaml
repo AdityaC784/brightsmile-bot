@@ -1,7 +1,7 @@
 # CI eval gate rules (read by evals/compare.py).
-# Soft-fail threshold: 7 points tolerates one flipped case on the 30-case baseline (~3.3 pts each)
-# and fails on two. Models run at temperature 0 and CI replays cached cases, so no separate
-# noise run was done (2026-11-14).
+# Soft-fail threshold: tolerate one flipped case, fail on two. On the 50-case set one case is
+# 2 points, so 3 points. Models run at temperature 0 and CI replays cached cases, so no separate
+# noise run was done (2026-11-14). Revisit when the golden set size changes.
 
 hard_fail:
   consent_violations_max: 0
@@ -10,7 +10,7 @@ hard_fail:
 
 soft_fail:
   # Fail if a headline metric drops more than this many percentage points vs. baseline.
-  max_drop_points: 7
+  max_drop_points: 3
   metrics:
     - retrieval.recall_at_5
     - retrieval.mrr

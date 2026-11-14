@@ -300,3 +300,7 @@ at the Baner Road clinic") the judge read as requiring both halves.
 q-047 now passes; q-043 ran this time (0 errors) and failed — it omitted the ≥24 h full-refund
 tier. Baseline: correctness **0.84 (42/50)**; failing q-015, q-016, q-024, q-035, q-037, q-038,
 q-041, q-043.
+
+**Gate threshold (golden 0.6.1):** `max_drop_points` 7 → 3. The 7 was set for 30 cases and
+actually tolerated two flips; with 50 cases (2 pts each) 3 keeps the rule "one flip passes,
+two fail".
