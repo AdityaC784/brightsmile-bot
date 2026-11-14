@@ -6,13 +6,14 @@ name: eval-gate
 on:
   pull_request:
     paths: ["src/**", "prompts/**", "configs/**", "data/kb/**", "evals/**"]
+  workflow_dispatch: # run on main to (re)fill the LLM cache that PRs restore from
 
 permissions:
   contents: read
   pull-requests: write
 
 concurrency: # one eval per PR at a time (free-tier LLM quotas)
-  group: eval-gate-${{ github.event.pull_request.number }}
+  group: eval-gate-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -51,12 +52,16 @@ jobs:
 
       # LLM responses are cached by prompt hash: unchanged cases cost nothing and grade
       # identically, so only what the PR actually changed is re-generated and re-judged.
+      # Saved even when the job fails (see the last step), so a run cut short by free-tier
+      # quota still keeps its progress; caches are immutable, hence the run id in the key.
       - name: Restore LLM cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .cache/llm
-          key: llm-${{ hashFiles('prompts/**', 'configs/**', 'src/**', 'data/kb/**', 'evals/golden/**') }}
-          restore-keys: llm-
+          key: llm-${{ hashFiles('prompts/**', 'configs/**', 'src/**', 'data/kb/**', 'evals/golden/**') }}-${{ github.run_id }}
+          restore-keys: |
+            llm-${{ hashFiles('prompts/**', 'configs/**', 'src/**', 'data/kb/**', 'evals/golden/**') }}-
+            llm-
 
       - run: uv run python -m bot.db.migrate
       - run: uv run python -m bot.retrieval.ingest
@@ -69,6 +74,7 @@ jobs:
             --candidate evals/runs/pr.json --comment-out comment.md
 
       - name: Comment on PR
+        if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -79,3 +85,10 @@ jobs:
         run: |
           uv run python -m evals.compare --baseline evals/baseline.json \
             --candidate evals/runs/pr.json --enforce
+
+      - name: Save LLM cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/llm
+          key: llm-${{ hashFiles('prompts/**', 'configs/**', 'src/**', 'data/kb/**', 'evals/golden/**') }}-${{ github.run_id }}
