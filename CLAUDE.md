@@ -36,11 +36,19 @@ uv run python -m bot.rag.ask "question" --debug
   prompt files.
 - **Secrets**: `.env` holds three Groq keys and a Gemini key. Never print, paste or commit them;
   read them with `grep … | cut` into env vars when a run needs a specific key.
-- **Quotas**: Groq free tier = 200k tokens/day per model per key; a full uncached eval uses
-  ~110k generator tokens. LLM calls are cached by request, so re-runs of unchanged cases are free.
-  Don't run two evals at once (shared limits; they overwrite each other's output).
-- **Record results**: new measurements go in `docs/results.md`; judge validation labels live in
-  `evals/judge_labels/`.
+- **Quotas**: Groq free tier = 200k tokens/day per model per key (rolling 24 h); a full uncached
+  eval of the 50 cases uses ~230k generator tokens. LLM calls are cached by request, so re-runs
+  of unchanged cases are free. Don't run two evals at once (shared limits; they overwrite each
+  other's output).
+- **Record results**: new measurements go in `docs/results.md` and the status in `audit.md`;
+  judge validation labels live in `evals/judge_labels/`.
+- **CI gate** (GitHub: `AdityaC784/brightsmile-bot`, private): `max_drop_points` in
+  `configs/gate.yaml` = one flipped case passes, two fail — re-set it whenever the golden set size
+  changes. The gate's LLM cache is filled by **Actions → eval-gate → Run workflow** on `main`.
+  Changing the baseline is its own commit (`make eval-baseline`).
+- **Models**: don't switch a role's model/provider (`configs/models.yaml`) as a quick fix — it
+  invalidates the baseline and CI cache. Only as a recorded experiment with a new baseline; a new
+  judge must be re-validated (`make judge-score`).
 - Safety invariants (tests guard them): verified-before-shown replies; emergencies never fall
   back to generic text; leads saved only after the consent text was shown and the patient agreed.
 - Commit messages end with the co-author line used in history; check staged files for keys first.

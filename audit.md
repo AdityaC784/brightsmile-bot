@@ -1,6 +1,7 @@
 # BrightSmile Bot — Project Audit
 
-*Written 2026-11-13, end of day 1. Covers everything built so far, how the program works end to
+*Written 2026-11-13, end of day 1; updated 2026-11-15 (day 2: re-measure, golden set 50,
+baseline, GitHub CI). Covers everything built so far, how the program works end to
 end, how it is measured, what the numbers say, the decisions behind it, the mistakes made, and
 what is still open. Companion documents: `docs/PLAN.md` (the original plan), `docs/results.md`
 (every measured number, in order), `evals/golden/CHANGELOG.md` (every change to the test set).*
@@ -16,8 +17,9 @@ when the KB doesn't cover something, refuses things it must never do (diagnose, 
 promise insurance payouts, confirm live slots), routes emergencies to first aid and hospitals,
 captures leads **only after explicit consent**, and can pause a conversation for a human staff
 member. Every change is meant to be guarded by an **evaluation suite and a CI gate** that blocks
-pull requests that make answers worse. On the latest measured run it answered **21 of 24**
-development questions and **4 of 5** held-out questions correctly (judged by hand).
+pull requests that make answers worse. On the committed baseline (50 cases, golden 0.6.1) it
+answers **42 of 50** correctly by the validated judge, with faithfulness and citation accuracy
+1.00 and safety 100%.
 
 ### Status at a glance
 
@@ -28,18 +30,18 @@ development questions and **4 of 5** held-out questions correctly (judged by han
 | Grounded answering + self-verification | Built, measured, tuned, then **frozen** |
 | Conversation flow (LangGraph) | Built and tested: routing, follow-ups, consent-gated leads, human handoff |
 | HTTP API (FastAPI) | Built and tested: streaming chat, feedback, staff replies, admin endpoints |
-| Evaluation (golden set, judge, labels) | Built; judge validated against hand labels |
-| CI gate | Built (`evals/compare.py` + GitHub workflows); needs a committed baseline and repo secrets |
-| Open | Re-measure the final prompts, measure noise, grow golden set 30 → 50, create baseline, lead/safety eval sets, deployment |
+| Evaluation (golden set, judge, labels) | 50 cases (38 dev / 12 holdout); judge validated against hand labels |
+| CI gate | Baseline committed (0.84 on 50); repo on GitHub with secrets; `ci` green; eval-gate cache being filled |
+| Open | Bad-PR demo, deployment + widget, feedback-review CLI, lead/safety eval sets, README + demo video |
 
 Codebase: ~4,050 lines of application/eval Python, ~1,190 lines of tests, **83 tests passing**,
-11 commits.
+19 commits.
 
 ---
 
 ## 2. What we did, in order
 
-All work happened on 2026-11-13. Times are commit times.
+Day 1 is 2026-11-13, day 2 is 2026-11-14. Times are commit times.
 
 | Time | Commit | What |
 |---|---|---|
@@ -55,6 +57,14 @@ All work happened on 2026-11-13. Times are commit times.
 | 22:07 | `e80550e` | **Tuning freeze + CI gate.** Review concluded the answer pipeline was over-tuned on 24 cases → froze tuning. Built the CI gate and noise-measurement mode. |
 | 22:14 | `142b7fe` | **Removed over-built code** (−246 lines): row chunking, tariff expansion, arithmetic checker — all built for one case or rejected by measurement. |
 | 22:21 | `f7d29c4` | **Prompt cleanup.** Removed test-case wording used as prompt examples; consolidated rules; clinic facts rendered from config; README updated. |
+| **Day 2** | | |
+| 18:54 | `7fab8f7` | **Frozen re-measure** on fresh quota: dev 0.96 (22/23 scored), holdout 0.83 (5/6). Failures recorded, not tuned. |
+| 19:01 | `14741d9` | **No separate noise run** (temperature 0 + CI replays cached cases); gate threshold set by case size instead. First baseline: 0.90 on 30. |
+| 20:12 | `97d43cd` | **Golden set 0.6.0 → 50 cases.** Claude drafted 20 questions; you wrote the answers. Baseline 0.84. |
+| 20:20 | `66b2269` | **Golden 0.6.1.** Fixed a checklist item Claude worded badly (q-047); baseline re-scored: 0.84 (42/50), 0 errors. |
+| — | — | **Pushed to GitHub** (private repo, Actions secrets added); `ci` workflow green. |
+| 22:58 | `7498f70` | **Gate cache fix.** A quota-cut run failed the job and `actions/cache` only saves on success, so CI never kept a cache. Cache is now saved always; a manual run fills it from `main`. |
+| 23:09 | `dbc7722` | **Gate threshold 3 points** (one flipped case passes, two fail on 50 cases). |
 
 ---
 
@@ -252,13 +262,14 @@ conversation survives a server restart.
 
 ## 4. How we measure it
 
-### 4.1 Golden set — `evals/golden/v1.jsonl` (version 0.5.0)
+### 4.1 Golden set — `evals/golden/v1.jsonl` (version 0.6.1)
 
-30 hand-written cases: 11 lookups, 4 exact-ID, 3 multi-source, 2 follow-ups, 4 unanswerable,
-2 ambiguous, 4 safety (injection, discount promise, medication, off-topic). **24 dev** (we tune
-on these) and **6 holdout** (report only, never tune). Each case has the question, the documents
-that should be retrieved, the expected behaviour, your reference answer, and for the 10
-abstain/refuse/clarify cases a `must_include` / `must_not_include` checklist (e.g. "no ₹ price
+50 cases: 19 lookups, 6 exact-ID, 6 multi-source, 4 follow-ups, 6 unanswerable, 3 ambiguous,
+6 safety (injection, discount promise, medication, off-topic, patient-data request, airway
+emergency). **38 dev** (we tune on these) and **12 holdout** (report only, never tune). Reference
+answers are yours; for q-031 – q-050 Claude drafted the questions and the non-answer checklists. Each case has the question, the documents
+that should be retrieved, the expected behaviour, your reference answer, and for the
+abstain/refuse/clarify/handoff cases a `must_include` / `must_not_include` checklist (e.g. "no ₹ price
 for implants"). Every change is logged in `evals/golden/CHANGELOG.md`.
 
 ### 4.2 Retrieval eval — `make eval-retrieval`
@@ -296,7 +307,11 @@ committed baseline, comment on the PR, and **block the merge** if:
 - **hard fail**: any consent violation (once lead evals exist), safety < 100%, abstention recall
   < 85%, or any errored case;
 - **soft fail**: correctness, faithfulness, citation accuracy, recall@5 or MRR drops more than
-  5 points (to be re-set above measured noise).
+  3 points — one flipped case (2 points on 50) passes, two fail. Re-set it when the golden set
+  size changes.
+
+The LLM cache is saved even when the job fails, so a run cut short by quota keeps its progress;
+**Actions → eval-gate → Run workflow** on `main` fills the cache that PRs restore from.
 
 The comment lists metric changes and every case that flipped pass → fail. Metrics that can't be
 measured yet are shown as "not measured", never as passing. A second workflow (`ci.yml`) runs
@@ -323,15 +338,19 @@ lint and tests on every push/PR.
 | After judge rebuild + KB fixes | 22/24 | — | |
 | After repair loop + reference expansion | 23/24 | — | |
 | After `working` field etc. | **21/24** | **4/5** | Latest measured; 1 holdout case not run (quota) |
-| After removals + prompt cleanup | *not yet measured* | | Tomorrow's re-measure |
+| After removals + prompt cleanup (judge) | **0.96** (22/23) | **0.83** (5/6) | Frozen re-measure, day 2; q-016 not scored (rate limit) |
+
+**Baseline (judge, golden 0.6.1, all 50):** correctness **0.84 (42/50)**, behaviour 0.96,
+faithfulness 1.00, citations 1.00 (105 claims), abstention P/R 1.00 / 1.00, safety 1.00,
+recall@5 / MRR 0.92 / 0.85, 0 errors.
 
 Across rounds: **faithfulness 1.00** (no answer stated an unsupported fact), citation accuracy
 0.95–1.00, safety 4/4 in most rounds.
 
-**Current failures** — dev: q-016 (multi-rule refund total — known limitation), q-018 (insurance
-coverage stated without the caveat), q-029 (dropped the emergency signs); holdout: q-015
-(incomplete summary of the cancellation policy). The q-018 and q-029 prompt fixes are in place
-but unmeasured.
+**Current failures (baseline)** — q-016 (multi-rule refund total — known limitation), q-024
+(no booking link after declining a diagnosis), q-015 (incomplete cancellation-policy summary),
+and five new cases that left out secondary details: q-035, q-037, q-038, q-041, q-043. No answer
+stated an unsupported fact. Recorded, not tuned (freeze).
 
 ---
 
@@ -382,7 +401,12 @@ metric trusting the model's label instead of the reply text.
 - **Editing the test after failing it.** The golden set went 0.1 → 0.5 (gold labels, one
   question reworded, checks relaxed). Each change is documented, but it's the habit the plan
   warns against; no further edits driven by results.
-- **Skipped steps.** Noise was never measured before tuning; the golden set is 30, not 50.
+- **Skipped steps.** Noise was never measured before tuning. Day 2: the golden set reached 50;
+  a separate noise run was then judged unnecessary (temperature 0, cached CI) — a deliberate skip.
+- **Day 2 slips (Claude's).** The 20 drafted questions put 30% in holdout (test requires 15–25%;
+  fixed before merge); one checklist item was worded so the judge required both halves (q-047,
+  fixed in 0.6.1); the gate threshold was left at 7 after the set grew to 50 (fixed to 3); the
+  gate workflow could never build a CI cache (fixed).
 - **Quota.** About ten full regenerations in one day exhausted three Groq keys.
 - **Lost a run file.** An all-error run overwrote the good `latest.json` (scores and labels
   survived elsewhere); the runner now refuses to overwrite a good run with an all-error run.
@@ -394,7 +418,7 @@ metric trusting the model's label instead of the reply text.
 
 ## 9. Known limitations
 
-- Small golden set (30 cases, 6 holdout): one case ≈ 4 points; run-to-run noise unknown.
+- Golden set of 50 (12 holdout): one case = 2 points (8 on holdout); noise not measured separately.
 - Multi-rule totals (e.g. package refund after partial treatment) are not computed.
 - Judge validated on 24 replies labelled by the project owner — enough to catch leniency, not a
   precise reliability figure; it can still miss subtle condition errors.
@@ -405,8 +429,8 @@ metric trusting the model's label instead of the reply text.
   consent as "not measured".
 - Retrieval-score abstention is switched off (`min_top_score: 0.0`) pending the plan's threshold
   experiment.
-- Free-tier quotas (Groq 200k tokens/day per model per key) limit full uncached evals to about
-  one per key per day.
+- Free-tier quotas (Groq 200k tokens/day per model per key, rolling 24 h): a full uncached eval
+  of 50 cases (~230k generator tokens) needs more than one key-day; CI relies on its cache.
 - No deployment, widget or demo video yet (plan Week 4).
 
 ---
@@ -458,13 +482,13 @@ uv run python -m bot.llm.check_models             # are the configured models li
 
 ## 12. What's next (in order)
 
-1. **Re-measure** the final system once, on fresh Groq quota: dev + holdout. No changes based on
-   holdout.
-2. **Measure noise**: two uncached dev runs (`--no-cache`), compare; set the gate's
-   `max_drop_points` above the spread; create `evals/baseline.json` (`make eval-baseline`).
-3. **Grow the golden set to 50** with *new* questions you write from the KB.
-4. **Make the CI gate live**: push to GitHub, add `GROQ_API_KEY`, `GROQ_GENERATOR_API_KEY`,
-   `GEMINI_API_KEY` as secrets, require the `eval-gate` check; open a deliberately bad PR to prove
-   it blocks.
-5. **Lead and safety eval sets** (consent violations must be 0) and measuring follow-up rewriting.
-6. **Plan Week 4**: feedback-review CLI, deployment, website widget, demo video.
+1. **Finish the CI cache**: re-run eval-gate on `main` until green (second key if needed).
+2. **Bad-PR demo**: a deliberately narrow break (e.g. an emergency no longer handed off) → the
+   gate blocks it; keep the screenshot; turn on branch protection requiring the check.
+3. **Deploy**: Dockerfile, free Postgres with pgvector (Neon/Supabase), free API host (note cold
+   starts), one-page widget on the SSE chat endpoint.
+4. **Feedback loop**: `make review` points to a missing `evals/review_cli.py`; add a minimal one,
+   then you write answers for ≥5 real cases → golden 0.7.0 → new baseline.
+5. **README + 3-minute demo video**.
+6. Later, optional: lead/safety eval sets, follow-up-rewrite measurement, a second provider
+   (e.g. NVIDIA) only as a recorded experiment with its own baseline.
