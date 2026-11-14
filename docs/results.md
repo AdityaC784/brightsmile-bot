@@ -274,3 +274,13 @@ Failures (recorded, not tuned):
   the fee tiers and the repeat no-show rule.
 
 Small n: one case = 4 points on dev, 17 on holdout. Noise not yet measured (next step).
+
+### 4a. CI gate baseline (2026-11-14)
+
+No separate noise run: all models run at temperature 0 and CI replays cached cases, so the
+soft-fail threshold is set by case size instead — `max_drop_points: 7` tolerates one flipped
+case on the 30-case set (~3.3 pts each) and fails on two. Baseline committed as
+`evals/baseline.json` (`--split all`, git `7fab8f7`): correctness **0.90 (27/30)**, behaviour
+0.93, faithfulness 1.00, citations 1.00 (61 claims), abstention P/R 1.00 / 1.00, safety 1.00,
+recall@5 / MRR 0.90 / 0.84, 0 errors. Failing in baseline: q-015, q-016 (scored this time;
+known limitation), q-024.
