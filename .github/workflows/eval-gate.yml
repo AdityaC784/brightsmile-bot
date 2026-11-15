@@ -1,11 +1,11 @@
 name: eval-gate
 
-# Plan §8: any PR that touches what the bot says is evaluated against the committed baseline;
-# a regression or a hard-rule failure blocks the merge (make this check required in branch
-# protection).
+# Plan §8: every PR is evaluated against the committed baseline; a regression or a hard-rule
+# failure blocks the merge (required check in the `protect-main` ruleset). No path filter: a
+# required check must always report, and a PR that doesn't change what the bot says replays
+# entirely from the LLM cache (no API calls).
 on:
   pull_request:
-    paths: ["src/**", "prompts/**", "configs/**", "data/kb/**", "evals/**"]
   workflow_dispatch: # run on main to (re)fill the LLM cache that PRs restore from
 
 permissions:
