@@ -231,25 +231,115 @@ def test_save_lead_refuses_without_consent():
 # --------------------------------------------------------------------------- human handoff
 
 
-def test_handoff_pauses_for_human_and_resumes_with_reply():
-    from langgraph.types import Command
+def _staff_graph(*utility_replies):
+    """Graph whose first turn starts a staff conversation."""
+    graph, _, ans = _graph({"intent": "handoff"}, *utility_replies)
+    out = _ask(graph, "S1", "I want to speak to the manager")
+    assert out["handoff_pending"] is True and out["reply"]["handoff_started"] is True
+    assert out["staff_waiting_since"] and ans.calls == []
+    return graph, ans
 
+
+def test_staff_hold_the_chat_and_the_bot_stays_silent():
+    graph, ans = _staff_graph({"intent": "support"}, {"intent": "handoff"})
+    out = _ask(graph, "S1", "Yes, 5 pm works for me")
+    assert out["reply"] == {"behavior": "staff", "answer": "", "citations": []}
+    assert out["handoff_pending"] is True and ans.calls == []
+    again = _ask(graph, "S1", "Can I talk to the manager instead?")  # already with staff
+    assert again["reply"]["behavior"] == "staff" and "handoff_started" not in again["reply"]
+
+
+def test_red_flag_while_staff_hold_the_chat_is_answered_at_once():
+    graph, ans = _staff_graph(
+        {"intent": "support", "emergency": True}, {"standalone": "spreading neck swelling"}
+    )
+    out = _ask(graph, "S1", "the swelling is spreading down my neck")
+    assert len(ans.calls) == 1 and out["reply"]["behavior"] == "answer"
+    assert out["handoff_pending"] is True  # staff still hold the conversation
+
+
+def test_request_for_a_person_with_a_red_flag_gets_the_answer_then_the_handoff():
+    graph, _, ans = _graph({"intent": "handoff", "emergency": "true"})
+    out = _ask(graph, "S2", "get me a doctor, my cheek is swelling up fast")
+    assert len(ans.calls) == 1
+    assert out["reply"]["answer"].startswith("grounded answer")
+    assert "+91-20-5550-0140" in out["reply"]["answer"] and out["reply"]["citations"]
+    assert out["handoff_pending"] is True and out["reply"]["handoff_started"] is True
+
+
+def test_handoff_with_nobody_online_does_not_start_a_staff_chat():
     graph, _, _ = _graph({"intent": "handoff"})
-    cfg = {"configurable": {"thread_id": "H1"}}
-    out = graph.invoke(new_turn("H1", "I want to speak to the manager"), cfg)
-    assert out["handoff_pending"] is True and "__interrupt__" in out
-    payload = out["__interrupt__"][0].value
-    assert payload["question"] == "I want to speak to the manager"
-    snap = graph.get_state(cfg)
-    assert snap.next == ("human_wait",)  # paused, waiting for staff
+    cfg = {"configurable": {"thread_id": "S3"}}
+    out = graph.invoke(new_turn("S3", "a person please", staff_online=False), cfg)
+    assert "Nobody from our team" in out["reply"]["answer"]
+    assert not out.get("handoff_pending") and out["reply"]["handoff_started"] is False
 
-    done = graph.invoke(Command(resume="Hi, this is Vikram from billing. How can I help?"), cfg)
-    assert done["handoff_pending"] is False
-    assert done["messages"][-1] == {
-        "role": "human_agent",
-        "content": "Hi, this is Vikram from billing. How can I help?",
-    }
-    assert graph.get_state(cfg).next == ()
+
+def test_presence_states():
+    from bot.api.staff import Presence
+
+    p = Presence()
+    assert not p.staff_online(now=100)
+    p.staff_ping(now=100)
+    assert p.staff_online(now=170) and not p.staff_online(now=191)  # background-tab allowance
+    p.patient_ping("t", now=100)
+    assert p.patient_status("t", now=105) == ("online", 5)
+    assert p.patient_status("t", now=121)[0] == "left"  # visible tab stopped polling
+    p.patient_ping("t", hidden=True, now=130)
+    assert p.patient_status("t", now=200)[0] == "away"  # hidden tabs poll slowly
+    assert p.patient_status("t", now=221)[0] == "left"
+    assert p.patient_status("unknown", now=50) == ("online", 0)  # unknown = seen now
+    p.patient_ping("dup", now=300)  # visible tab ...
+    p.patient_ping("dup", hidden=True, now=303)  # ... and its duplicate in the background
+    assert p.patient_status("dup", now=304)[0] == "online"  # the most active tab wins
+    assert p.patient_status("dup", now=330)[0] == "away"
+
+
+def test_staff_presence_sessions_and_leaving():
+    from bot.api.staff import Presence
+
+    p = Presence()
+    assert not p.staff_online(now=100) and not p.staff_gone(now=100)  # never seen: not "gone"
+    p.staff_ping("a", now=100)
+    p.staff_ping("b", now=100)
+    p.staff_leave("a", now=101)
+    assert p.staff_online(now=120)  # tab b is still open
+    p.staff_leave("b", now=101)
+    assert p.staff_online(now=110) and not p.staff_online(now=112)  # 10 s grace
+    assert p.staff_gone(now=112)
+    p.staff_ping("b", now=105)  # a reload within the grace period keeps staff online
+    assert p.staff_online(now=112)
+
+
+def test_staff_reply_end_and_timeout():
+    from bot.api import staff
+
+    graph, _ = _staff_graph({"intent": "support"})
+    staff.reply(graph, "S1", "Hi, Vikram here.", persist=False)
+    values = graph.get_state({"configurable": {"thread_id": "S1"}}).values
+    assert values["messages"][-1] == {"role": "human_agent", "content": "Hi, Vikram here."}
+    assert values["staff_waiting_since"] is None
+    assert staff.expire(graph, "S1", persist=False) is False  # nobody is waiting
+
+    _ask(graph, "S1", "Thanks, one more question")  # patient waits again
+    since = graph.get_state({"configurable": {"thread_id": "S1"}}).values["staff_waiting_since"]
+    assert staff.expire(graph, "S1", now=since + 60, persist=False) is False
+    assert staff.expire(graph, "S1", now=since + 241, persist=False) is True
+    values = graph.get_state({"configurable": {"thread_id": "S1"}}).values
+    assert (
+        values["handoff_pending"] is False and "call reception" in values["messages"][-1]["content"]
+    )
+    assert not staff.in_staff_mode(graph, "S1")
+
+
+def test_staff_end_hands_the_chat_back_to_the_bot():
+    from bot.api import staff
+
+    graph, ans = _staff_graph({"intent": "support"}, {"standalone": "How much is scaling?"})
+    text = staff.end(graph, "S1", persist=False)
+    assert "back with the assistant" in text
+    out = _ask(graph, "S1", "How much is scaling?")
+    assert out["reply"]["behavior"] == "answer" and len(ans.calls) == 1
 
 
 @pytest.mark.skipif(not _db_ok(), reason="needs `docker compose up db`")

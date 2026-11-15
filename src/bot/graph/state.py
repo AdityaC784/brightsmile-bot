@@ -14,7 +14,8 @@ class Turn(TypedDict):
 
 
 class Reply(TypedDict, total=False):
-    behavior: str  # answer | abstain | clarify | refuse | handoff
+    behavior: str  # answer | abstain | clarify | refuse | handoff | staff (relayed, no reply)
+    handoff_started: bool  # this turn started a staff conversation
     answer: str
     citations: list[str]
     confidence: float | None
@@ -48,7 +49,12 @@ class ChatState(TypedDict, total=False):
     standalone: str  # rewritten, self-contained version used for retrieval
     intent: Intent
     reply: Reply  # the assistant's reply for this turn (with grounding metadata)
+    emergency: bool  # classifier: this message shows a red-flag symptom (per turn)
+    staff_online: bool  # set by the API: a staff member has the staff page open (per turn)
     # Persist across turns (not reset by new_turn):
     lead: Lead
     lead_stage: LeadStage | None
+    # True while staff hold the conversation (from a handoff until staff end it or time out).
     handoff_pending: bool
+    # Epoch seconds since the patient has been waiting for a staff reply; None once answered.
+    staff_waiting_since: float | None

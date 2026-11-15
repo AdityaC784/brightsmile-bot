@@ -38,6 +38,10 @@
           border-bottom-right-radius: 4px; }
   .bot { align-self: flex-start; background: var(--bot); border-bottom-left-radius: 4px; }
   .status { color: var(--muted); font-style: italic; }
+  .staff { border: 1px solid var(--accent); }
+  .staffbar { padding: 8px 16px; font-size: 13px; border-bottom: 1px solid var(--line);
+              background: var(--bot); }
+  .who { font-size: 12px; font-weight: 600; color: var(--accent); margin-bottom: 2px; }
   .meta { margin-top: 8px; font-size: 12px; color: var(--muted); white-space: normal; }
   .meta ol { margin: 2px 0 0; padding-left: 20px; }
   sup { font-size: 10px; color: var(--accent); font-weight: 600; margin-left: 1px; cursor: help; }
@@ -68,6 +72,7 @@
     <h1>{{clinic_name}} Assistant</h1>
     <p>Answers come from the clinic's documents, with sources. Not medical advice.</p>
   </header>
+  <div id="staffBar" class="staffbar" role="status" hidden></div>
   <div id="log" aria-live="polite">
     <div class="msg bot">Hi! Ask me about services, prices, hours, appointments, policies or aftercare.
       <div class="chips" id="chips">
@@ -138,20 +143,42 @@
     });
   };
 
+  // Numbered citations in the answer text plus a "Sources" list under it.
+  const addSources = (bubble, body, raw, citations) => {
+    const docs = numberSources(citations);
+    if (!docs.size) return;
+    renderAnswer(body, raw, docs);
+    const meta = el("div", "meta", "Sources:");
+    const ol = el("ol");
+    docs.forEach((d, doc) => {
+      ol.appendChild(el("li", null, d.sections.length ? `${doc} · ${d.sections.join("; ")}` : doc));
+    });
+    meta.appendChild(ol);
+    bubble.appendChild(meta);
+  };
+  const addStaff = (text) => {
+    const b = el("div", "msg bot staff");
+    b.appendChild(el("div", "who", "Staff · {{clinic_name}}"));
+    b.appendChild(document.createTextNode(text));
+    log.appendChild(b);
+  };
+  const addNote = (text) => {
+    const b = el("div", "msg bot");
+    b.appendChild(el("div", "note", text));
+    log.appendChild(b);
+  };
+
   function finish(bubble, body, raw, done) {
-    const docs = numberSources(done.citations);
-    if (docs.size) {
-      renderAnswer(body, raw, docs);
-      const meta = el("div", "meta", "Sources:");
-      const ol = el("ol");
-      docs.forEach((d, doc) => {
-        ol.appendChild(el("li", null, d.sections.length ? `${doc} · ${d.sections.join("; ")}` : doc));
-      });
-      meta.appendChild(ol);
-      bubble.appendChild(meta);
+    if (done.behavior === "staff") { // relayed to staff: no bot reply (the banner shows status)
+      bubble.remove();
+      watchStaff(done.thread_id, done.message_id || 0);
+      return;
     }
+    addSources(bubble, body, raw, done.citations);
     if (done.handoff_pending) {
-      bubble.appendChild(el("div", "note", "Our staff has been notified and will reply here."));
+      if (!staffTimer) // a new staff chat (not a red-flag answer during one)
+        bubble.appendChild(el("div", "note", "Our staff has been notified and will reply here."));
+      watchStaff(done.thread_id, done.message_id || 0);
     }
     if (done.message_id != null && done.thread_id) {
       const fb = el("div", "fb");
@@ -176,9 +203,115 @@
     }
   }
 
+  // While staff hold the conversation, check for their messages every 5 s (every 15 s while
+  // the tab is hidden). These checks also tell the server the patient is still here.
+  const bar = document.getElementById("staffBar");
+  const showBar = (online) => {
+    bar.hidden = false;
+    bar.textContent = online === false
+      ? "⚪ You're in a chat with {{clinic_name}} staff · nobody is online right now"
+      : "🟢 You're chatting with {{clinic_name}} staff · they'll reply here";
+  };
+  let staffTimer = null, staffTid = null;
+  function watchStaff(tid, after) {
+    if (staffTimer && staffTid === tid) return; // already watching: keep the last seen id
+    clearInterval(staffTimer);
+    staffTid = tid;
+    const until = Date.now() + 2 * 3600 * 1000;
+    showBar();
+    const stop = () => {
+      clearInterval(staffTimer); staffTimer = null; staffTid = null; bar.hidden = true;
+    };
+    let tick = 0;
+    const poll = async () => {
+      if (Date.now() > until) { stop(); return; }
+      const hidden = document.hidden;
+      if (hidden && tick++ % 3) return;
+      try {
+        const r = await fetch(
+          `/v1/chat/${encodeURIComponent(tid)}/staff-replies?after=${after}&hidden=${hidden}`);
+        if (!r.ok) return;
+        const data = await r.json();
+        showBar(data.staff_online);
+        data.replies.forEach((m) => {
+          if (m.kind === "staff") addStaff(m.text);
+          else addNote(m.text);
+          after = Math.max(after, m.id);
+          scroll();
+        });
+        if (!data.pending) stop();
+      } catch (e) { /* try again on the next tick */ }
+    };
+    staffTimer = setInterval(poll, 5000);
+    poll();
+  }
+  // A page opened on an existing conversation (refresh, duplicated tab) shows it so far and
+  // rejoins an open staff chat.
+  async function restore() {
+    if (!threadId) return;
+    let data;
+    try {
+      const r = await fetch(`/v1/chat/${encodeURIComponent(threadId)}/history`);
+      if (!r.ok) return;
+      data = await r.json();
+    } catch (e) { return; }
+    if (!data.messages.length) return;
+    document.getElementById("chips")?.remove();
+    let last = 0;
+    data.messages.forEach((m) => {
+      last = Math.max(last, m.id);
+      if (m.role === "user") log.appendChild(el("div", "msg user", m.content));
+      else if (m.role === "human_agent") addStaff(m.content);
+      else if ((m.intent || "").startsWith("staff_")) addNote(m.content);
+      else {
+        const b = el("div", "msg bot");
+        const body = el("span", null, m.content);
+        b.appendChild(body);
+        addSources(b, body, m.content, m.citations);
+        log.appendChild(b);
+      }
+    });
+    scroll();
+    if (data.pending) watchStaff(threadId, last);
+  }
+  restore();
+
+  // Duplicated tabs share one conversation (same thread id). They tell each other about new
+  // messages and answers, so every tab shows them at once (same browser only, no server calls).
+  let tabs = null;
+  try { tabs = new BroadcastChannel("bsb-chat"); } catch (e) {}
+  const tell = (msg) => {
+    if (!tabs || !threadId) return;
+    try { tabs.postMessage({ tid: threadId, ...msg }); } catch (e) {}
+  };
+  let remote = null; // the answer another tab is waiting for
+  if (tabs) tabs.onmessage = ({ data: m }) => {
+    if (!m || m.tid !== threadId) return;
+    if (m.type === "user") {
+      document.getElementById("chips")?.remove();
+      log.appendChild(el("div", "msg user", m.text));
+      const bubble = el("div", "msg bot");
+      const body = el("span", "status", "Thinking…");
+      bubble.appendChild(body);
+      log.appendChild(bubble);
+      remote = { bubble, body };
+    } else if (m.type === "reply" && remote) {
+      const { bubble, body } = remote;
+      remote = null;
+      body.className = "";
+      body.textContent = m.raw;
+      finish(bubble, body, m.raw, m.done);
+    } else if (m.type === "error" && remote) {
+      remote.body.textContent = "Sorry, something went wrong reaching the assistant.";
+      remote = null;
+    }
+    scroll();
+  };
+
   async function ask(text) {
     document.getElementById("chips")?.remove();
     log.appendChild(el("div", "msg user", text));
+    tell({ type: "user", text });
     const bubble = el("div", "msg bot");
     const body = el("span", "status", "Thinking…");
     bubble.appendChild(body);
@@ -227,13 +360,15 @@
           }
         }
       }
-      if (!started) throw new Error("empty reply");
+      if (!started && !(done && done.behavior === "staff")) throw new Error("empty reply");
       if (done) {
         threadId = done.thread_id;
         try { sessionStorage.setItem("bsb-thread", threadId); } catch (e) {}
         finish(bubble, body, raw, done);
+        tell({ type: "reply", raw, done });
       }
     } catch (e) {
+      tell({ type: "error" });
       body.className = "status";
       body.textContent = "Sorry, something went wrong reaching the assistant. Please try again.";
     } finally {

@@ -38,6 +38,28 @@ lead:
     phone number or email. We'll use them only to follow up on this enquiry, never share or sell
     them, and you can ask us to delete them at any time.
 
+# Staff conversations (handoff). Staff hold the chat until they end it, until the patient has
+# waited `staff_timeout_seconds` without a staff reply, or until the patient's page has been gone
+# for `patient_gone_seconds`; then the assistant takes over again. With no staff page open, a
+# request for a person gets `offline_text` at once.
+handoff:
+  staff_timeout_seconds: 180
+  patient_gone_seconds: 300
+  ended_text: >-
+    Our team has ended this chat. You're back with the assistant, so feel free to ask me anything.
+  timeout_text: >-
+    Sorry, nobody from our team could reply just now. Please call reception on {reception}.
+    You're back with the assistant in the meantime.
+  closed_text: >-
+    Our team has gone offline. Please call reception on {reception}. You're back with the
+    assistant in the meantime.
+  left_text: >-
+    This chat with our team was closed because you were away. Ask me anything, or ask for a
+    person again.
+  offline_text: >-
+    Nobody from our team is online right now. Please call reception on {reception}, or ask me
+    anything in the meantime.
+
 verification:
   # Experiment switch (plan §7: with vs without citation verification).
   enabled: true

@@ -20,8 +20,9 @@ uv run python -m bot.rag.ask "question" --debug
 ## Layout
 - `src/bot/retrieval` loaders → chunking → ingest; `hybrid.py` search (weighted RRF + reference expansion)
 - `src/bot/rag` `answer.py` pipeline (generate → verify → one repair → fallback), `verify.py`
-- `src/bot/graph` LangGraph nodes (classify, rewrite, support, lead, handoff/human_wait, greet, refuse)
-- `src/bot/api` FastAPI app, per-turn logging with contact redaction
+- `src/bot/graph` LangGraph nodes (classify, rewrite, support, lead, handoff, staff, greet, refuse)
+- `src/bot/api` FastAPI app, per-turn logging with contact redaction; `staff.py` staff chats
+  (replies, end, timeouts, in-memory presence); `static/` chat page `/` and staff page `/staff`
 - `src/bot/llm` providers/roles/cache/retries; models in `configs/models.yaml`
 - `prompts/*.md` — clinic facts come from `configs/generation.yaml` via `bot.prompts.clinic_prompt`
 - `evals/` golden set, runner, judge, judge_agreement, compare (CI gate); `.github/workflows/`
@@ -50,5 +51,7 @@ uv run python -m bot.rag.ask "question" --debug
   invalidates the baseline and CI cache. Only as a recorded experiment with a new baseline; a new
   judge must be re-validated (`make judge-score`).
 - Safety invariants (tests guard them): verified-before-shown replies; emergencies never fall
-  back to generic text; leads saved only after the consent text was shown and the patient agreed.
+  back to generic text and are answered by the bot even while staff hold the chat; leads saved
+  only after the consent text was shown and the patient agreed.
+- `main` is protected (ruleset: PR + `eval` and `lint-and-test` checks): work on a branch.
 - Commit messages end with the co-author line used in history; check staged files for keys first.
