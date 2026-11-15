@@ -354,5 +354,6 @@ def test_history_lets_a_reopened_page_show_the_conversation(admin_key):
             "human_agent",
         ]
         assert h["messages"][1]["citations"]  # the bot answer keeps its sources
+        c.post(f"/v1/handoff/{tid}/end", headers=admin_key)  # don't leave it on the staff list
         assert c.get("/v1/chat/bad id!/history").status_code == 422
         assert c.get(f"/v1/chat/{_tid()}/history").json()["messages"] == []
