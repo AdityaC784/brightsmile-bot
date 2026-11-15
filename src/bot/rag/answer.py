@@ -135,7 +135,8 @@ class Answerer:
         sid_to_doc = {f"S{i}": h.doc_id for i, h in enumerate(result.hits, 1)}
         sid_to_src = {f"S{i}": h.source_doc_id for i, h in enumerate(result.hits, 1)}
         cited = list(dict.fromkeys(CITE.findall(out.answer) + out.citations))
-        result.behavior = out.behavior
+        # Human handoff is the graph's job (handoff node), so report emergencies as plain answers.
+        result.behavior = "answer" if out.behavior == "handoff" else out.behavior
         result.raw_answer = out.answer
         result.answer = CITE.sub(
             lambda m: f"[{sid_to_src.get(m.group(1), m.group(1))}]", out.answer
