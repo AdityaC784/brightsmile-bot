@@ -31,8 +31,8 @@ answers **42 of 50** correctly by the validated judge, with faithfulness and cit
 | Conversation flow (LangGraph) | Built and tested: routing, follow-ups, consent-gated leads, human handoff |
 | HTTP API (FastAPI) | Built and tested: streaming chat, feedback, staff replies, admin endpoints |
 | Evaluation (golden set, judge, labels) | 50 cases (38 dev / 12 holdout); judge validated against hand labels |
-| CI gate | Baseline committed (0.84 on 50); repo on GitHub with secrets; `ci` green; eval-gate cache being filled |
-| Open | Bad-PR demo, deployment + widget, feedback-review CLI, lead/safety eval sets, README + demo video |
+| CI gate | Baseline committed (0.84 on 50); `ci` and eval-gate green on `main`; LLM cache filled; bad-PR demo blocked by the gate (`docs/img/`) |
+| Open | Branch protection, deployment + widget, feedback-review CLI, lead/safety eval sets, README + demo video |
 
 Codebase: ~4,050 lines of application/eval Python, ~1,190 lines of tests, **83 tests passing**,
 19 commits.
@@ -65,6 +65,9 @@ Day 1 is 2026-11-13, day 2 is 2026-11-14. Times are commit times.
 | — | — | **Pushed to GitHub** (private repo, Actions secrets added); `ci` workflow green. |
 | 22:58 | `7498f70` | **Gate cache fix.** A quota-cut run failed the job and `actions/cache` only saves on success, so CI never kept a cache. Cache is now saved always; a manual run fills it from `main`. |
 | 23:09 | `dbc7722` | **Gate threshold 3 points** (one flipped case passes, two fail on 50 cases). |
+| **Day 3** | | |
+| — | — | **CI cache filled; eval-gate green on `main`** after 5 manual runs (free-tier quota cut each one short; the cache carried progress between runs). 42/50 as in the baseline: q-003 flipped to fail, q-041 to pass (one flip = within the limit). Judge and generator secrets now on swapped Groq accounts. A new Groq account's `qwen` key was unusable: 1,000 output-tokens-per-minute cap < `max_tokens` 1024. |
+| — | PR #1 | **Bad-PR demo.** Emergency replies swapped for the generic handoff message: unit tests and `ci` green, **eval-gate red** (safety 83.3% < 100%; q-009, q-050 flipped). PR closed unmerged; screenshots in `docs/img/`. |
 
 ---
 
@@ -482,13 +485,12 @@ uv run python -m bot.llm.check_models             # are the configured models li
 
 ## 12. What's next (in order)
 
-1. **Finish the CI cache**: re-run eval-gate on `main` until green (second key if needed).
-2. **Bad-PR demo**: a deliberately narrow break (e.g. an emergency no longer handed off) → the
-   gate blocks it; keep the screenshot; turn on branch protection requiring the check.
-3. **Deploy**: Dockerfile, free Postgres with pgvector (Neon/Supabase), free API host (note cold
+1. **Branch protection**: require `eval-gate / eval` and `ci` on `main` (bad-PR demo done;
+   a private repo on the free plan may need to go public for this).
+2. **Deploy**: Dockerfile, free Postgres with pgvector (Neon/Supabase), free API host (note cold
    starts), one-page widget on the SSE chat endpoint.
-4. **Feedback loop**: `make review` points to a missing `evals/review_cli.py`; add a minimal one,
+3. **Feedback loop**: `make review` points to a missing `evals/review_cli.py`; add a minimal one,
    then you write answers for ≥5 real cases → golden 0.7.0 → new baseline.
-5. **README + 3-minute demo video**.
-6. Later, optional: lead/safety eval sets, follow-up-rewrite measurement, a second provider
+4. **README + 3-minute demo video**.
+5. Later, optional: lead/safety eval sets, follow-up-rewrite measurement, a second provider
    (e.g. NVIDIA) only as a recorded experiment with its own baseline.
