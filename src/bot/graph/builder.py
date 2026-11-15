@@ -7,8 +7,12 @@
         print(out["reply"]["answer"])
 
 Flow:
-    START -> classify -> support: rewrite -> support -> END
+    START -> classify -> support: rewrite -> support -> END (or -> handoff, see below)
                       -> lead (D3) / handoff (D4) / greet / refuse -> END
+                      -> staff (while staff hold the conversation: relay, no bot reply) -> END
+    A request for a person that also shows a red-flag symptom gets the bot's answer first,
+    then the handoff. Staff replies, ending and the timeout are applied by the API with
+    `update_state` (see bot.api.staff), not by graph nodes.
 """
 
 from __future__ import annotations
@@ -32,27 +36,31 @@ def build_graph(nodes: Nodes | None = None, checkpointer=None):
     g.add_node("support", n.support)
     g.add_node("lead", n.lead)
     g.add_node("handoff", n.handoff)
-    g.add_node("human_wait", n.human_wait)
+    g.add_node("staff", n.staff)
     g.add_node("greet", n.greet)
     g.add_node("refuse", n.refuse)
 
     g.add_edge(START, "classify")
-    g.add_conditional_edges("classify", n.route, ["rewrite", "lead", "handoff", "greet", "refuse"])
+    g.add_conditional_edges(
+        "classify", n.route, ["rewrite", "lead", "handoff", "greet", "refuse", "staff"]
+    )
     g.add_edge("rewrite", "support")
-    g.add_edge("handoff", "human_wait")  # ack is saved, then the graph pauses for a human
-    for leaf in ("support", "lead", "human_wait", "greet", "refuse"):
+    g.add_conditional_edges("support", n.after_support, ["handoff", END])
+    for leaf in ("lead", "handoff", "greet", "refuse", "staff"):
         g.add_edge(leaf, END)
     return g.compile(checkpointer=checkpointer)
 
 
-def new_turn(thread_id: str, text: str) -> dict:
+def new_turn(thread_id: str, text: str, *, staff_online: bool = True) -> dict:
     """Input for one user turn. Per-turn fields are reset; the transcript accumulates."""
     return {
         "thread_id": thread_id,
+        "staff_online": staff_online,
         "question": text,
         "messages": [Turn(role="user", content=text)],
         "standalone": "",
         "intent": "support",
+        "emergency": False,
         "reply": {},
     }
 

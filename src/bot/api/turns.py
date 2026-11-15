@@ -44,7 +44,8 @@ def _conn(database_url: str | None = None):
 
 
 def log_turn(thread_id: str, user_text: str, state: dict, handoff_pending: bool) -> int:
-    """Store the user message and the assistant reply; returns the assistant message id."""
+    """Store the user message and the assistant reply; returns the assistant message id (the
+    user message id when the message was only relayed to staff, with no bot reply)."""
     reply = state.get("reply") or {}
     behavior = reply.get("behavior", "")
     status = "pending" if handoff_pending else None
@@ -56,10 +57,13 @@ def log_turn(thread_id: str, user_text: str, state: dict, handoff_pending: bool)
                    handoff_status = COALESCE(%s, conversations.handoff_status)""",
             (thread_id, get_settings().tenant_id, status, status),
         )
-        conn.execute(
-            "INSERT INTO messages (thread_id, role, content, intent) VALUES (%s, 'user', %s, %s)",
+        user_id = conn.execute(
+            "INSERT INTO messages (thread_id, role, content, intent) VALUES (%s, 'user', %s, %s) "
+            "RETURNING id",
             (thread_id, redact(user_text), state.get("intent")),
-        )
+        ).fetchone()[0]
+        if behavior == "staff":  # relayed to staff: no assistant message
+            return user_id
         row = conn.execute(
             """INSERT INTO messages (thread_id, role, content, intent, retrieved_ids, citations,
                    verifier, abstained, latency_ms, tokens_in, tokens_out, model)
@@ -93,7 +97,7 @@ def log_turn(thread_id: str, user_text: str, state: dict, handoff_pending: bool)
             source = "citation_failed"
         elif behavior == "abstain":
             source = "abstained"
-        elif handoff_pending:
+        elif reply.get("handoff_started"):
             source = "handoff"
         if source:
             add_candidate(
@@ -130,6 +134,21 @@ def log_human_reply(thread_id: str, text: str) -> int:
             "INSERT INTO messages (thread_id, role, content) VALUES (%s, 'human_agent', %s) "
             "RETURNING id",
             (thread_id, redact(text)),
+        ).fetchone()
+        conn.execute(
+            "UPDATE conversations SET updated_at = now() WHERE thread_id = %s", (thread_id,)
+        )
+    return row[0]
+
+
+def log_staff_end(thread_id: str, text: str, reason: str) -> int:
+    """Record the end of a staff conversation (reason: ended | timeout) as an assistant
+    message the chat page shows, and take the thread off the staff list."""
+    with _conn() as conn:
+        row = conn.execute(
+            "INSERT INTO messages (thread_id, role, content, intent) "
+            "VALUES (%s, 'assistant', %s, %s) RETURNING id",
+            (thread_id, text, f"staff_{reason}"),
         ).fetchone()
         conn.execute(
             "UPDATE conversations SET handoff_status = 'resolved', updated_at = now() "
@@ -181,18 +200,22 @@ def pending_handoffs(recent: int = 6) -> list[dict]:
             "updated_at": r[1].isoformat(),
             "last_user_message": r[2],
             "recent": r[3],
+            # The patient spoke last (or only the handoff happened): they wait for staff.
+            "waiting": not r[3] or r[3][-1]["role"] != "human_agent",
         }
         for r in rows
     ]
 
 
 def staff_replies(thread_id: str, after: int = 0) -> dict:
-    """Staff messages in one conversation newer than message id `after`, and whether it still
-    waits for staff. Contacts in the text are redacted like every stored message."""
+    """Staff messages (and the end-of-chat notice) newer than message id `after`, and whether
+    staff still hold the conversation. Contacts are redacted like every stored message."""
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT id, content, created_at FROM messages "
-            "WHERE thread_id = %s AND role = 'human_agent' AND id > %s ORDER BY id",
+            "SELECT id, content, created_at, role FROM messages "
+            "WHERE thread_id = %s AND id > %s "
+            "AND (role = 'human_agent' OR intent IN ('staff_ended', 'staff_timeout', 'staff_left', 'staff_closed')) "
+            "ORDER BY id",
             (thread_id, after),
         ).fetchall()
         status = conn.execute(
@@ -200,5 +223,29 @@ def staff_replies(thread_id: str, after: int = 0) -> dict:
         ).fetchone()
     return {
         "pending": bool(status and status[0] == "pending"),
-        "replies": [{"id": r[0], "text": r[1], "created_at": r[2].isoformat()} for r in rows],
+        "replies": [
+            {
+                "id": r[0],
+                "kind": "staff" if r[3] == "human_agent" else "end",
+                "text": r[1],
+                "created_at": r[2].isoformat(),
+            }
+            for r in rows
+        ],
     }
+
+
+def history(thread_id: str, limit: int = 100) -> list[dict]:
+    """The conversation as stored (contacts redacted), oldest first, for a page that reopens it
+    (refresh or a second tab)."""
+    with _conn() as conn:
+        rows = conn.execute(
+            """SELECT id, role, content, intent, citations FROM (
+                   SELECT id, role, content, intent, citations FROM messages
+                    WHERE thread_id = %s ORDER BY id DESC LIMIT %s) t
+               ORDER BY id""",
+            (thread_id, limit),
+        ).fetchall()
+    return [
+        {"id": r[0], "role": r[1], "content": r[2], "intent": r[3], "citations": r[4]} for r in rows
+    ]

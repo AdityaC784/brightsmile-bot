@@ -46,8 +46,10 @@
 <body>
 <main>
   <h1>{{clinic_name}} · Staff handoffs</h1>
-  <p class="muted">Conversations where a patient asked for a person. One reply per handoff; the
-    patient sees it in their chat and then continues with the assistant.</p>
+  <p class="muted">Chats where a patient asked for a person. While a chat is open here, the
+    patient's messages come to you and the assistant stays quiet (it still answers red-flag
+    symptoms at once). Click <b>End chat</b> to hand the patient back to the assistant. If a
+    patient waits {{staff_timeout_minutes}} minutes without a reply, the chat ends and they are told to call reception.</p>
 
   <form class="key" id="keyForm">
     <input id="key" type="password" autocomplete="off" placeholder="Admin key"
@@ -69,6 +71,26 @@
   let key = "";
   try { key = sessionStorage.getItem("bsb-admin") || ""; } catch (e) {}
   let timer = null;
+  const baseTitle = document.title;
+  // One id per open staff page, so one tab closing doesn't mark other staff offline.
+  let session = "";
+  try { session = sessionStorage.getItem("bsb-staff-session") || ""; } catch (e) {}
+  if (!session) {
+    session = Math.random().toString(36).slice(2);
+    try { sessionStorage.setItem("bsb-staff-session", session); } catch (e) {}
+  }
+  const headers = (json) => ({
+    "X-Admin-Key": key, "X-Staff-Session": session,
+    ...(json ? { "Content-Type": "application/json" } : {}),
+  });
+  // Tell the server this page went away (locked or closed), so new requests for a person get
+  // "nobody online" and open chats are handed back to the assistant.
+  const goOffline = () => {
+    if (!key) return;
+    try { fetch("/v1/staff/offline", { method: "POST", headers: headers(), keepalive: true }); }
+    catch (e) {}
+  };
+  window.addEventListener("pagehide", goOffline);
 
   const el = (tag, cls, text) => {
     const n = document.createElement(tag);
@@ -82,14 +104,17 @@
   };
   const showError = (text) => { $("error").textContent = text; $("error").hidden = !text; };
 
-  function card(h) {
-    const c = el("div", "card");
-    c.dataset.thread = h.thread_id;
-    const head = el("header");
-    head.appendChild(el("strong", null, h.thread_id));
-    head.appendChild(el("span", "muted", `waiting since ${ago(h.updated_at)}`));
-    c.appendChild(head);
-    const msgs = el("div", "msgs");
+  // Refresh a card's header and messages; the reply box is left alone.
+  function update(c, h) {
+    const status = c.querySelector(".status");
+    const s = h.patient_seen_seconds || 0;
+    const presence = { online: "🟢 Patient online", away: "🟡 Patient away (other tab or app)",
+                       left: `⚪ Patient left ${s < 60 ? `${s} s` : `${Math.round(s / 60)} min`} ago` };
+    status.textContent = `${presence[h.patient] || ""} · ${
+      h.waiting ? "⏳ waiting for your reply" : `answered ${ago(h.updated_at)}`}`;
+    status.className = h.waiting ? "status err" : "status muted";
+    const msgs = c.querySelector(".msgs");
+    msgs.textContent = "";
     (h.recent && h.recent.length ? h.recent : [{ role: "user", content: h.last_user_message || "" }])
       .forEach((m) => {
         const d = el("div", "m");
@@ -97,46 +122,66 @@
         d.appendChild(document.createTextNode(m.content));
         msgs.appendChild(d);
       });
-    c.appendChild(msgs);
+  }
+
+  const post = (h, action, body) =>
+    fetch(`/v1/handoff/${encodeURIComponent(h.thread_id)}/${action}`, {
+      method: "POST",
+      headers: headers(true),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+  function card(h) {
+    const c = el("div", "card");
+    c.dataset.thread = h.thread_id;
+    const head = el("header");
+    head.appendChild(el("strong", null, h.thread_id));
+    head.appendChild(el("span", "status"));
+    c.append(head, el("div", "msgs"));
     const ta = el("textarea");
     ta.maxLength = 4000;
     ta.placeholder = "Your reply to the patient (share clinic numbers only; patient contacts are masked)";
     ta.setAttribute("aria-label", `Reply to ${h.thread_id}`);
     c.appendChild(ta);
     const row = el("div", "row");
-    const btn = el("button", null, "Send reply");
+    const send = el("button", null, "Send reply");
+    const endBtn = el("button", "secondary", "End chat");
     const note = el("span", "muted");
-    row.append(btn, note);
+    row.append(send, endBtn, note);
     c.appendChild(row);
-    btn.onclick = async () => {
+    const gone = (text) => { note.textContent = text; setTimeout(() => { c.remove(); refresh(); }, 1500); };
+
+    send.onclick = async () => {
       const text = ta.value.trim();
       if (!text) return;
-      btn.disabled = true;
+      send.disabled = true;
       note.textContent = "Sending…";
       try {
-        const r = await fetch(`/v1/handoff/${encodeURIComponent(h.thread_id)}/reply`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Admin-Key": key },
-          body: JSON.stringify({ message: text }),
-        });
-        if (r.ok) {
-          note.textContent = "Sent ✓";
-          ta.disabled = true;
-          setTimeout(() => { c.remove(); refresh(); }, 1500);
-          return;
-        }
-        note.textContent = r.status === 409 ? "Already answered or no longer waiting."
-                                             : `Failed (HTTP ${r.status}).`;
+        const r = await post(h, "reply", { message: text });
+        if (r.ok) { ta.value = ""; note.textContent = "Sent ✓"; refresh(); }
+        else if (r.status === 409) gone("This chat has already ended.");
+        else note.textContent = `Failed (HTTP ${r.status}).`;
       } catch (e) { note.textContent = "Network error, try again."; }
-      btn.disabled = false;
+      send.disabled = false;
     };
+    endBtn.onclick = async () => {
+      if (!confirm("End this chat? The patient goes back to the assistant.")) return;
+      endBtn.disabled = send.disabled = true;
+      try {
+        const r = await post(h, "end");
+        if (r.ok || r.status === 409) { gone("Chat ended."); return; }
+        note.textContent = `Failed (HTTP ${r.status}).`;
+      } catch (e) { note.textContent = "Network error, try again."; }
+      endBtn.disabled = send.disabled = false;
+    };
+    update(c, h);
     return c;
   }
 
   async function refresh() {
     if (!key) return;
     let r;
-    try { r = await fetch("/v1/handoffs", { headers: { "X-Admin-Key": key } }); }
+    try { r = await fetch("/v1/handoffs", { headers: headers() }); }
     catch (e) { showError("Can't reach the server."); return; }
     if (r.status === 401 || r.status === 503) {
       lock();
@@ -151,10 +196,16 @@
     // Keep cards that are still waiting (so a half-typed reply survives a refresh).
     [...list.children].forEach((c) => { if (!want.has(c.dataset.thread)) c.remove(); });
     const have = new Set([...list.children].map((c) => c.dataset.thread));
-    items.forEach((h) => { if (!have.has(h.thread_id)) list.appendChild(card(h)); });
+    const byId = new Map([...list.children].map((c) => [c.dataset.thread, c]));
+    items.forEach((h) => {
+      if (have.has(h.thread_id)) update(byId.get(h.thread_id), h);
+      else list.appendChild(card(h));
+    });
+    const waiting = items.filter((h) => h.waiting).length;
+    document.title = (waiting ? `(${waiting}) ` : "") + baseTitle;
     $("summary").textContent = items.length
-      ? `${items.length} waiting · refreshes every 10 s`
-      : "Nobody is waiting. This list refreshes every 10 s.";
+      ? `${items.length} open chat(s), ${waiting} waiting for a reply · refreshes every 5 s`
+      : "No open chats. This list refreshes every 5 s.";
     $("queue").hidden = false;
     $("key").hidden = true;
     $("keyForm").querySelector("button[type=submit]").hidden = true;
@@ -162,6 +213,7 @@
   }
 
   function lock() {
+    goOffline();
     key = "";
     try { sessionStorage.removeItem("bsb-admin"); } catch (e) {}
     clearInterval(timer);
@@ -176,7 +228,9 @@
   function start() {
     clearInterval(timer);
     refresh();
-    timer = setInterval(() => { if (!document.hidden) refresh(); }, 10000);
+    // Keep refreshing in a background tab too: the refresh is how the server knows staff are
+    // online (browsers may slow it to about once a minute; the server allows for that).
+    timer = setInterval(refresh, 5000);
   }
 
   $("keyForm").addEventListener("submit", (e) => {

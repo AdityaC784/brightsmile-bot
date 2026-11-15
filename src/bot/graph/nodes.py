@@ -5,10 +5,11 @@ Dependencies (LLMs, the answerer) are injected through `Nodes(...)` so tests can
 
 from __future__ import annotations
 
+import time
 from functools import cached_property
 from typing import Literal
 
-from langgraph.types import interrupt
+from langgraph.graph import END
 from pydantic import BaseModel, field_validator
 
 from bot.config import load_yaml
@@ -24,12 +25,18 @@ HISTORY_TURNS = 6  # conversation window given to the classifier, rewriter and g
 
 class _Intent(BaseModel):
     intent: Intent
+    emergency: bool = False
     reason: str = ""
 
     @field_validator("intent", mode="before")
     @classmethod
     def _norm(cls, v: object) -> object:
         return v.strip().lower().replace(" ", "_") if isinstance(v, str) else v
+
+    @field_validator("emergency", mode="before")
+    @classmethod
+    def _flag(cls, v: object) -> object:
+        return v.strip().lower() in ("true", "yes", "1") if isinstance(v, str) else bool(v)
 
 
 class _Standalone(BaseModel):
@@ -88,11 +95,21 @@ class Nodes:
         parsed, _ = self.utility.chat_json(
             clinic_prompt("classify"), [Message("user", prompt)], _Intent
         )
-        return {"intent": parsed.intent}
+        return {"intent": parsed.intent, "emergency": parsed.emergency}
 
     @staticmethod
-    def route(state: ChatState) -> Literal["rewrite", "lead", "handoff", "greet", "refuse"]:
+    def route(
+        state: ChatState,
+    ) -> Literal["rewrite", "lead", "handoff", "greet", "refuse", "staff"]:
         intent = state.get("intent", "support")
+        emergency = state.get("emergency", False)
+        # Staff hold the conversation: messages go to them, except red-flag symptoms, which
+        # the bot answers at once (staff may be slow; an emergency can't wait).
+        if state.get("handoff_pending"):
+            return "rewrite" if emergency else "staff"
+        # Asking for a person with a red-flag symptom: answer first, then hand off.
+        if intent == "handoff" and emergency:
+            return "rewrite"
         # Mid-enquiry, keep the patient in the lead flow (it answers questions too), unless
         # they ask for a human or go off-topic.
         if state.get("lead_stage") in ("collecting", "awaiting_consent") and intent in (
@@ -175,34 +192,39 @@ class Nodes:
 
     # -------------------------------------------------------------------- human handoff
 
+    @staticmethod
+    def after_support(state: ChatState) -> str:
+        """After the bot answered a red-flag message that also asked for a person: hand off."""
+        if state.get("intent") == "handoff" and not state.get("handoff_pending"):
+            return "handoff"
+        return END
+
     def handoff(self, state: ChatState) -> dict:
-        """Acknowledge and flag the thread; `human_wait` then pauses for a staff reply."""
+        """Start a staff conversation: acknowledge and flag the thread. Staff reply through the
+        API; until they end it (or it times out) patient messages go to them (`staff`)."""
         c = self.cfg["clinic"]
-        out = self._fixed(
-            "handoff",
-            "I've passed your message to our team and a staff member will reply here. If it's "
-            f"urgent, you can also reach reception directly on {c['reception']}.",
-        )
-        return {**out, "handoff_pending": True}
+        online = state.get("staff_online", True)
+        if online:
+            ack = (
+                "I've passed your message to our team and a staff member will reply here. If "
+                f"it's urgent, you can also reach reception directly on {c['reception']}."
+            )
+        else:  # nobody has the staff page open: don't make the patient wait for nothing
+            ack = self.cfg["handoff"]["offline_text"].strip().format(**c)
+        prior = state.get("reply") or {}  # the bot's answer earlier in this turn, if any
+        reply = {**prior, "behavior": prior.get("behavior", "handoff"), "handoff_started": online}
+        reply["answer"] = f"{prior['answer']}\n\n{ack}" if prior.get("answer") else ack
+        reply.setdefault("citations", [])
+        out = {"reply": reply, "messages": [Turn(role="assistant", content=ack)]}
+        if online:
+            out |= {"handoff_pending": True, "staff_waiting_since": time.time()}
+        return out
 
-    def human_wait(self, state: ChatState) -> dict:
-        """Pause the graph until a human replies (resume with Command(resume=<text>)).
-
-        Everything before interrupt() re-runs on resume, so this node has no side effects
-        before it; the payload is JSON-serialisable for the API / admin UI.
-        """
-        reply = interrupt(
-            {
-                "thread_id": state.get("thread_id"),
-                "question": state.get("question"),
-                "transcript": list(state.get("messages", []))[-HISTORY_TURNS:],
-            }
-        )
-        text = str(reply).strip()
+    def staff(self, state: ChatState) -> dict:
+        """Staff hold the conversation: keep the message for them; the bot stays silent."""
         return {
-            "handoff_pending": False,
-            "reply": {"behavior": "handoff", "answer": text, "citations": []},
-            "messages": [Turn(role="human_agent", content=text)],
+            "reply": {"behavior": "staff", "answer": "", "citations": []},
+            "staff_waiting_since": state.get("staff_waiting_since") or time.time(),
         }
 
     # -------------------------------------------------------------------- lead capture

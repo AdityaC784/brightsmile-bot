@@ -33,7 +33,8 @@ answers **42 of 50** correctly by the validated judge, with faithfulness and cit
 | Evaluation (golden set, judge, labels) | 50 cases (38 dev / 12 holdout); judge validated against hand labels |
 | CI gate | Baseline committed (0.84 on 50); `ci` and eval-gate green on `main`; LLM cache filled; bad-PR demo blocked by the gate (`docs/img/`) |
 | Live | API + chat page on Render (https://brightsmile-bot.onrender.com), Postgres on Neon |
-| Open | Staff page + staff replies on the chat page, feedback-review CLI, lead/safety eval sets, README + demo video |
+| Staff chat | `/staff` page: live chats with presence, End chat, timeouts; see §3.6–3.7 |
+| Open | Feedback-review CLI, lead/safety eval sets, README + demo video |
 
 Codebase: ~4,050 lines of application/eval Python, ~1,190 lines of tests, **83 tests passing**,
 19 commits.
@@ -73,6 +74,7 @@ Day 1 is 2026-11-13, day 2 is 2026-11-14. Times are commit times.
 | — | — | **Dockerfile.** `python:3.12-slim` + uv; migrates, then serves on `$PORT`; secrets only at run time. Tested against local Postgres: health OK (234 chunks), one cited streamed answer; ~100 MB RAM idle, ~1 GB image. eval-gate's path filter removed so the required check always reports (unchanged PRs replay from cache). |
 | — | — | **Deployed.** Neon Postgres (pgvector 0.8.7; KB indexed, 415 chunks) + Render free web service from the Dockerfile. Checked live: health OK, a priced answer with citations, and the swelling emergency → `handoff`. `kb_version` differs from local only by line endings (CRLF on Windows vs LF on Linux). |
 | — | — | **Chat page** at `/` (`src/bot/api/static/index.html`): streamed verified answers, inline citations shown as numbered superscripts + sources list, follow-ups via `thread_id`, 👍/👎 to `/v1/feedback`, cold-start notice. Clinic facts injected from `configs/generation.yaml`. |
+| — | — | **Staff chat.** `/staff` page and live staff chats: several replies until End chat; red flags still answered by the bot; request for a person wins over symptoms (classifier `emergency` flag); "nobody online" at once; timeouts (3 min no reply, 5 min patient gone, staff offline after 10 s); presence online/away/left by most active tab; reopened/duplicated tabs load history and sync instantly. Replaces the one-reply `interrupt` flow. 99 tests. |
 
 ---
 
@@ -209,8 +211,9 @@ clarify, handoff); refusals and abstentions need no citations.
 conversation survives a server restart.
 
 - **classify** (`prompts/classify.md`, gpt-oss-20b): support / lead / handoff / greeting /
-  out_of_scope. Manipulative messages *about the clinic* still go to support (the answer step
-  refuses safely and can still state the correct facts).
+  out_of_scope, plus an `emergency` flag (red-flag symptoms). Manipulative messages *about the
+  clinic* still go to support (the answer step refuses safely and can still state the correct
+  facts). An explicit request for a person is `handoff` even when symptoms are mentioned.
 - **rewrite** (`prompts/rewrite.md`): turns follow-ups like "and the cheaper one?" into a
   standalone question for retrieval, using the last 6 turns. Skipped on the first message.
 - **support**: runs the answer pipeline above.
@@ -220,8 +223,17 @@ conversation survives a server restart.
   saved (`leads` table, one row per conversation, so re-saving updates rather than duplicates).
   Declining keeps no personal data in the lead state. A test caught a gap in the first version
   (details volunteered before seeing the consent text would have been saved) — fixed.
-- **handoff**: acknowledges, marks the conversation as waiting, then **pauses the graph**
-  (`interrupt`). A staff reply through the API resumes it and is added as a human message.
+- **handoff**: starts a **staff chat** (`handoff_pending`). If the message also shows a red flag,
+  the bot answers first, then hands off. If no staff page is open, the patient gets "nobody is
+  online, call reception" at once instead. While staff hold the chat, patient messages go to
+  them (**staff** node, no bot reply) — except red-flag symptoms, which the bot still answers
+  at once. Staff replies, End chat and the timeouts change the state from the API
+  (`bot.api.staff`, `update_state`), not from graph nodes.
+- **Staff chat ends** when staff click End chat, the patient waits 3 min without a staff reply,
+  the patient's page is gone 5 min, or all staff pages close (10 s grace for reloads); the
+  patient is told and the bot takes over. Timings: `configs/generation.yaml` → `handoff`.
+  Presence is in memory (one process on the free host): staff pages and the chat page's polls
+  are the heartbeats; hidden tabs get a 90 s allowance because browsers throttle them.
 - **greet / refuse**: fixed replies, no LLM call.
 - `make chat` runs the whole graph in the terminal.
 
@@ -233,7 +245,9 @@ conversation survives a server restart.
 |---|---|
 | `POST /v1/chat` | Streams a status event → the **verified** answer in chunks → a final event (citations, message id). `?stream=false` returns JSON. If the AI provider fails, the patient gets the fallback text, never an error page. |
 | `POST /v1/feedback` | Thumbs up/down + comment. Thumbs-down becomes a review candidate. |
-| `GET /v1/handoffs` · `POST /v1/handoff/{thread}/reply` | Staff see waiting conversations and reply (409 if the conversation isn't waiting). *(admin)* |
+| `GET /v1/handoffs` · `POST /v1/handoff/{thread}/reply` · `POST /v1/handoff/{thread}/end` · `POST /v1/staff/offline` | Staff see open chats (last 6 messages, patient online/away/left), reply any number of times, end a chat (always removes it), and mark their page offline. *(admin)* |
+| `GET /v1/chat/{thread}/staff-replies` · `GET /v1/chat/{thread}/history` | The chat page polls for staff messages and end notices, and reloads the conversation after a refresh or in a duplicated tab. The random thread id is the capability. |
+| `GET /` · `GET /staff` | Chat page and staff page (static HTML; clinic facts and timings filled in from config). |
 | `GET /v1/leads` · `DELETE /v1/leads/{id}` | List or delete leads (privacy). *(admin)* |
 | `POST /v1/ingest` | Re-index the KB. *(admin)* |
 | `GET /v1/health` | Database status, chunk count, KB version. |
@@ -490,10 +504,8 @@ uv run python -m bot.llm.check_models             # are the configured models li
 
 ## 12. What's next (in order)
 
-1. **Staff side**: a `/staff` page (admin key) to answer handoffs, and the chat page showing
-   staff replies (today a staff reply resumes the thread but the patient never sees it).
-2. **Feedback loop**: `make review` points to a missing `evals/review_cli.py`; add a minimal one,
+1. **Feedback loop**: `make review` points to a missing `evals/review_cli.py`; add a minimal one,
    then you write answers for ≥5 real cases → golden 0.7.0 → new baseline.
-3. **README + 3-minute demo video**.
-4. Later, optional: lead/safety eval sets, follow-up-rewrite measurement, a second provider
+2. **README + 3-minute demo video**.
+3. Later, optional: lead/safety eval sets, follow-up-rewrite measurement, a second provider
    (e.g. NVIDIA) only as a recorded experiment with its own baseline.

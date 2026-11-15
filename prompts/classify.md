@@ -10,7 +10,14 @@ Read the latest patient message (with the recent conversation for context) and c
   A pure price or policy question without intent to book is `support`.
 - `handoff` — the patient asks for a human (receptionist, doctor, manager), makes a complaint,
   is unhappy with treatment or staff, disputes a bill or refund, or asks for a fee waiver.
+  An explicit request for a person is `handoff` even if the message also describes symptoms or
+  asks a question.
 - `greeting` — only a greeting, thanks or goodbye, with no question.
 - `out_of_scope` — not about the clinic or dentistry at all (coding, sports, general trivia).
 
-Return one JSON object: {"intent": "support", "reason": "short reason"}
+Also set `emergency` to true only if the latest message describes a red-flag symptom: facial or
+neck swelling that is spreading, difficulty breathing or swallowing, fever above 101°F with
+swelling, bleeding that has not stopped after 45 minutes, or a knocked-out permanent tooth.
+Ordinary pain, sensitivity or mild swelling is not an emergency.
+
+Return one JSON object: {"intent": "support", "emergency": false, "reason": "short reason"}
