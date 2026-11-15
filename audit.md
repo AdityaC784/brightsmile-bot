@@ -32,7 +32,8 @@ answers **42 of 50** correctly by the validated judge, with faithfulness and cit
 | HTTP API (FastAPI) | Built and tested: streaming chat, feedback, staff replies, admin endpoints |
 | Evaluation (golden set, judge, labels) | 50 cases (38 dev / 12 holdout); judge validated against hand labels |
 | CI gate | Baseline committed (0.84 on 50); `ci` and eval-gate green on `main`; LLM cache filled; bad-PR demo blocked by the gate (`docs/img/`) |
-| Open | Hosting (DB + API) + widget, feedback-review CLI, lead/safety eval sets, README + demo video |
+| Live | API + chat page on Render (https://brightsmile-bot.onrender.com), Postgres on Neon |
+| Open | Staff page + staff replies on the chat page, feedback-review CLI, lead/safety eval sets, README + demo video |
 
 Codebase: ~4,050 lines of application/eval Python, ~1,190 lines of tests, **83 tests passing**,
 19 commits.
@@ -70,6 +71,8 @@ Day 1 is 2026-11-13, day 2 is 2026-11-14. Times are commit times.
 | — | PR #1 | **Bad-PR demo.** Emergency replies swapped for the generic handoff message: unit tests and `ci` green, **eval-gate red** (safety 83.3% < 100%; q-009, q-050 flipped). PR closed unmerged; screenshots in `docs/img/`. |
 | — | — | **Repo public; `main` protected** (`protect-main` ruleset: PR + `eval` and `lint-and-test` required). History checked first: no keys ever committed. |
 | — | — | **Dockerfile.** `python:3.12-slim` + uv; migrates, then serves on `$PORT`; secrets only at run time. Tested against local Postgres: health OK (234 chunks), one cited streamed answer; ~100 MB RAM idle, ~1 GB image. eval-gate's path filter removed so the required check always reports (unchanged PRs replay from cache). |
+| — | — | **Deployed.** Neon Postgres (pgvector 0.8.7; KB indexed, 415 chunks) + Render free web service from the Dockerfile. Checked live: health OK, a priced answer with citations, and the swelling emergency → `handoff`. `kb_version` differs from local only by line endings (CRLF on Windows vs LF on Linux). |
+| — | — | **Chat page** at `/` (`src/bot/api/static/index.html`): streamed verified answers, inline citations shown as numbered superscripts + sources list, follow-ups via `thread_id`, 👍/👎 to `/v1/feedback`, cold-start notice. Clinic facts injected from `configs/generation.yaml`. |
 
 ---
 
@@ -487,8 +490,8 @@ uv run python -m bot.llm.check_models             # are the configured models li
 
 ## 12. What's next (in order)
 
-1. **Deploy**: free Postgres with pgvector (Neon/Supabase), free API host for the `Dockerfile`
-   (note cold starts), one-page widget on the SSE chat endpoint.
+1. **Staff side**: a `/staff` page (admin key) to answer handoffs, and the chat page showing
+   staff replies (today a staff reply resumes the thread but the patient never sees it).
 2. **Feedback loop**: `make review` points to a missing `evals/review_cli.py`; add a minimal one,
    then you write answers for ≥5 real cases → golden 0.7.0 → new baseline.
 3. **README + 3-minute demo video**.
