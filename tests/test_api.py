@@ -188,3 +188,13 @@ def test_health():
         r = c.get("/v1/health")
     assert r.status_code == 200 and r.json()["status"] == "ok"
     assert r.json()["chunks"] >= 0  # CI test job runs without ingest
+
+
+def test_chat_page_served_with_clinic_facts_from_config():
+    with _client() as c:
+        r = c.get("/")
+    assert r.status_code == 200 and "text/html" in r.headers["content-type"]
+    assert "{{" not in r.text
+    from bot.config import load_yaml
+
+    assert load_yaml("generation")["clinic"]["name"] in r.text and "/v1/chat" in r.text
