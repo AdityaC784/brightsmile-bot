@@ -198,3 +198,32 @@ def test_chat_page_served_with_clinic_facts_from_config():
     from bot.config import load_yaml
 
     assert load_yaml("generation")["clinic"]["name"] in r.text and "/v1/chat" in r.text
+
+
+def test_staff_reply_reaches_the_patient_poll(admin_key):
+    tid = _tid()
+    with _client({"intent": "handoff"}) as c:
+        r = c.post("/v1/chat?stream=false", json={"thread_id": tid, "message": "A person please"})
+        after = r.json()["message_id"]
+        waiting = c.get(f"/v1/chat/{tid}/staff-replies", params={"after": after}).json()
+        assert waiting == {"pending": True, "replies": []}
+        listed = next(
+            h for h in c.get("/v1/handoffs", headers=admin_key).json() if h["thread_id"] == tid
+        )
+        assert [m["role"] for m in listed["recent"]][:1] == ["user"]
+
+        c.post(f"/v1/handoff/{tid}/reply", headers=admin_key, json={"message": "Hi, Vikram here."})
+        done = c.get(f"/v1/chat/{tid}/staff-replies", params={"after": after}).json()
+        assert done["pending"] is False
+        assert [m["text"] for m in done["replies"]] == ["Hi, Vikram here."]
+        last = done["replies"][-1]["id"]
+        assert (
+            c.get(f"/v1/chat/{tid}/staff-replies", params={"after": last}).json()["replies"] == []
+        )
+        assert c.get("/v1/chat/bad id!/staff-replies").status_code == 422
+
+
+def test_staff_page_served():
+    with _client() as c:
+        r = c.get("/staff")
+    assert r.status_code == 200 and "/v1/handoffs" in r.text and "{{" not in r.text

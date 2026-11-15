@@ -3,6 +3,7 @@
     uv run uvicorn bot.api.main:app --port 8000      # make serve
 
 POST /v1/chat                        reply, streamed over SSE (or JSON with ?stream=false)
+GET  /v1/chat/{thread_id}/staff-replies  staff replies newer than ?after=<message id>
 POST /v1/feedback                    thumbs up/down (+ comment) -> review candidates
 POST /v1/handoff/{thread_id}/reply   staff reply that resumes a paused conversation   [admin]
 GET  /v1/handoffs                    conversations waiting for staff                  [admin]
@@ -10,6 +11,7 @@ GET  /v1/leads, DELETE /v1/leads/{id}                                           
 POST /v1/ingest                      re-index the KB                                  [admin]
 GET  /v1/health                      KB version, chunk count, DB status
 GET  /                              chat page (static/index.html)
+GET  /staff                         staff page for handoffs (static/staff.html; uses the admin key)
 
 Streaming note: replies are verified before they are shown, so the stream sends a status
 event, then the *verified* answer in chunks, then a `done` event with citations. Streaming raw
@@ -30,6 +32,7 @@ from pathlib import Path
 import psycopg
 import structlog
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Path as PathParam
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from langgraph.types import Command
@@ -43,7 +46,8 @@ from bot.graph.builder import build_graph, new_turn
 
 log = structlog.get_logger("bot.api")
 DEFAULT_ADMIN_KEYS = {"", "change-me"}
-CHAT_PAGE = Path(__file__).parent / "static" / "index.html"
+STATIC = Path(__file__).parent / "static"
+THREAD_ID = r"^[\w.:-]{1,100}$"
 
 
 def _open_pool_checkpointer():
@@ -157,6 +161,12 @@ def create_app(graph=None, *, persist_turns: bool = True) -> FastAPI:
 
         return EventSourceResponse(events())
 
+    @app.get("/v1/chat/{thread_id}/staff-replies")
+    async def staff_replies(thread_id: str = PathParam(pattern=THREAD_ID), after: int = 0):
+        """Polled by the chat page while a conversation waits for staff. The thread id is a
+        random per-browser value, so it doubles as the capability to read this thread."""
+        return await run_in_threadpool(turns.staff_replies, thread_id, after)
+
     # ------------------------------------------------------------------ feedback & handoff
 
     @app.post("/v1/feedback")
@@ -228,14 +238,21 @@ def create_app(graph=None, *, persist_turns: bool = True) -> FastAPI:
         r = await run_in_threadpool(_ingest)
         return {"kb_version": r.kb_version, "documents": r.documents, "chunks": r.chunks}
 
-    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-    async def chat_page():
-        page = CHAT_PAGE.read_text(encoding="utf-8")
+    def _page(name: str) -> str:
+        page = (STATIC / name).read_text(encoding="utf-8")
         clinic = load_yaml("generation")["clinic"]
         for key in ("name", "reception", "emergency"):
             field = "clinic_name" if key == "name" else key
             page = page.replace("{{" + field + "}}", html.escape(clinic[key]))
         return page
+
+    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+    async def chat_page():
+        return _page("index.html")
+
+    @app.get("/staff", response_class=HTMLResponse, include_in_schema=False)
+    async def staff_page():
+        return _page("staff.html")
 
     @app.get("/v1/health")
     async def health():

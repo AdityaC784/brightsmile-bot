@@ -38,6 +38,8 @@
           border-bottom-right-radius: 4px; }
   .bot { align-self: flex-start; background: var(--bot); border-bottom-left-radius: 4px; }
   .status { color: var(--muted); font-style: italic; }
+  .staff { border: 1px solid var(--accent); }
+  .who { font-size: 12px; font-weight: 600; color: var(--accent); margin-bottom: 2px; }
   .meta { margin-top: 8px; font-size: 12px; color: var(--muted); white-space: normal; }
   .meta ol { margin: 2px 0 0; padding-left: 20px; }
   sup { font-size: 10px; color: var(--accent); font-weight: 600; margin-left: 1px; cursor: help; }
@@ -152,6 +154,7 @@
     }
     if (done.handoff_pending) {
       bubble.appendChild(el("div", "note", "Our staff has been notified and will reply here."));
+      watchStaff(done.thread_id, done.message_id || 0);
     }
     if (done.message_id != null && done.thread_id) {
       const fb = el("div", "fb");
@@ -175,6 +178,43 @@
       bubble.appendChild(fb);
     }
   }
+
+  // While a conversation waits for staff, check for their reply every 5 s (max 2 h).
+  let staffTimer = null;
+  function watchStaff(tid, after) {
+    clearInterval(staffTimer);
+    const until = Date.now() + 2 * 3600 * 1000;
+    const save = (v) => { try { v ? sessionStorage.setItem("bsb-staff", JSON.stringify(v))
+                                  : sessionStorage.removeItem("bsb-staff"); } catch (e) {} };
+    save({ tid, after, until });
+    const poll = async () => {
+      if (Date.now() > until) { clearInterval(staffTimer); save(null); return; }
+      if (document.hidden) return;
+      try {
+        const r = await fetch(`/v1/chat/${encodeURIComponent(tid)}/staff-replies?after=${after}`);
+        if (!r.ok) return;
+        const data = await r.json();
+        data.replies.forEach((m) => {
+          const b = el("div", "msg bot staff");
+          b.appendChild(el("div", "who", "Staff · {{clinic_name}}"));
+          b.appendChild(document.createTextNode(m.text));
+          log.appendChild(b);
+          after = Math.max(after, m.id);
+          scroll();
+        });
+        if (!data.pending) { clearInterval(staffTimer); save(null); }
+        else save({ tid, after, until });
+      } catch (e) { /* try again on the next tick */ }
+    };
+    staffTimer = setInterval(poll, 5000);
+  }
+  try {
+    const w = JSON.parse(sessionStorage.getItem("bsb-staff") || "null");
+    if (w && w.tid === threadId && Date.now() < w.until) {
+      log.appendChild(el("div", "msg bot status", "Waiting for a reply from our staff…"));
+      watchStaff(w.tid, w.after);
+    }
+  } catch (e) {}
 
   async function ask(text) {
     document.getElementById("chips")?.remove();

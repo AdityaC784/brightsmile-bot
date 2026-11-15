@@ -161,14 +161,44 @@ def save_feedback(thread_id: str, message_id: int | None, rating: int, comment: 
     return row[0]
 
 
-def pending_handoffs() -> list[dict]:
+def pending_handoffs(recent: int = 6) -> list[dict]:
+    """Conversations waiting for staff, with the last few messages for context."""
     with _conn() as conn:
         rows = conn.execute(
             """SELECT c.thread_id, c.updated_at,
                       (SELECT content FROM messages m WHERE m.thread_id = c.thread_id
-                         AND m.role = 'user' ORDER BY id DESC LIMIT 1)
-               FROM conversations c WHERE c.handoff_status = 'pending' ORDER BY c.updated_at"""
+                         AND m.role = 'user' ORDER BY id DESC LIMIT 1),
+                      (SELECT coalesce(json_agg(json_build_object('role', role, 'content', content)
+                                                ORDER BY id), '[]'::json)
+                         FROM (SELECT id, role, content FROM messages m
+                                WHERE m.thread_id = c.thread_id ORDER BY id DESC LIMIT %s) t)
+               FROM conversations c WHERE c.handoff_status = 'pending' ORDER BY c.updated_at""",
+            (recent,),
         ).fetchall()
     return [
-        {"thread_id": r[0], "updated_at": r[1].isoformat(), "last_user_message": r[2]} for r in rows
+        {
+            "thread_id": r[0],
+            "updated_at": r[1].isoformat(),
+            "last_user_message": r[2],
+            "recent": r[3],
+        }
+        for r in rows
     ]
+
+
+def staff_replies(thread_id: str, after: int = 0) -> dict:
+    """Staff messages in one conversation newer than message id `after`, and whether it still
+    waits for staff. Contacts in the text are redacted like every stored message."""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT id, content, created_at FROM messages "
+            "WHERE thread_id = %s AND role = 'human_agent' AND id > %s ORDER BY id",
+            (thread_id, after),
+        ).fetchall()
+        status = conn.execute(
+            "SELECT handoff_status FROM conversations WHERE thread_id = %s", (thread_id,)
+        ).fetchone()
+    return {
+        "pending": bool(status and status[0] == "pending"),
+        "replies": [{"id": r[0], "text": r[1], "created_at": r[2].isoformat()} for r in rows],
+    }

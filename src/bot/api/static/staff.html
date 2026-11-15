@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{clinic_name}} Staff</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #5d6677; --line: #e1e5ec;
+    --accent: #0f766e; --accent-text: #ffffff; --soft: #f1f4f8; --err: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #11151c; --panel: #171c25; --text: #e6e9ef; --muted: #9aa3b2; --line: #2a3140;
+      --accent: #2dd4bf; --accent-text: #06231f; --soft: #1f2632; --err: #ff8a80;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .err { color: var(--err); font-size: 13px; }
+  form.key { display: flex; gap: 8px; margin: 14px 0; flex-wrap: wrap; }
+  input, textarea { font: inherit; color: var(--text); background: var(--panel);
+                    border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  input { flex: 1; min-width: 200px; }
+  textarea { width: 100%; resize: vertical; min-height: 64px; }
+  button { border: 0; border-radius: 10px; padding: 8px 14px; background: var(--accent);
+           color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
+  button.secondary { background: var(--soft); color: var(--text); font-weight: 400; }
+  button:disabled { opacity: .5; cursor: default; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+          padding: 12px 14px; margin: 12px 0; }
+  .card header { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .msgs { margin: 10px 0; display: flex; flex-direction: column; gap: 6px; }
+  .m { padding: 6px 10px; border-radius: 10px; background: var(--soft); white-space: pre-wrap;
+       overflow-wrap: anywhere; }
+  .m b { font-size: 12px; color: var(--muted); display: block; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>{{clinic_name}} · Staff handoffs</h1>
+  <p class="muted">Conversations where a patient asked for a person. One reply per handoff; the
+    patient sees it in their chat and then continues with the assistant.</p>
+
+  <form class="key" id="keyForm">
+    <input id="key" type="password" autocomplete="off" placeholder="Admin key"
+           aria-label="Admin key">
+    <button type="submit">Open</button>
+    <button type="button" class="secondary" id="lock" hidden>Lock</button>
+  </form>
+  <p class="err" id="error" hidden></p>
+
+  <section id="queue" hidden>
+    <p class="muted" id="summary"></p>
+    <div id="list"></div>
+  </section>
+</main>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const ROLE = { user: "Patient", assistant: "Assistant", human_agent: "Staff" };
+  let key = "";
+  try { key = sessionStorage.getItem("bsb-admin") || ""; } catch (e) {}
+  let timer = null;
+
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  };
+  const ago = (iso) => {
+    const min = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000));
+    return min < 1 ? "just now" : min < 60 ? `${min} min ago` : `${Math.round(min / 60)} h ago`;
+  };
+  const showError = (text) => { $("error").textContent = text; $("error").hidden = !text; };
+
+  function card(h) {
+    const c = el("div", "card");
+    c.dataset.thread = h.thread_id;
+    const head = el("header");
+    head.appendChild(el("strong", null, h.thread_id));
+    head.appendChild(el("span", "muted", `waiting since ${ago(h.updated_at)}`));
+    c.appendChild(head);
+    const msgs = el("div", "msgs");
+    (h.recent && h.recent.length ? h.recent : [{ role: "user", content: h.last_user_message || "" }])
+      .forEach((m) => {
+        const d = el("div", "m");
+        d.appendChild(el("b", null, ROLE[m.role] || m.role));
+        d.appendChild(document.createTextNode(m.content));
+        msgs.appendChild(d);
+      });
+    c.appendChild(msgs);
+    const ta = el("textarea");
+    ta.maxLength = 4000;
+    ta.placeholder = "Your reply to the patient (share clinic numbers only; patient contacts are masked)";
+    ta.setAttribute("aria-label", `Reply to ${h.thread_id}`);
+    c.appendChild(ta);
+    const row = el("div", "row");
+    const btn = el("button", null, "Send reply");
+    const note = el("span", "muted");
+    row.append(btn, note);
+    c.appendChild(row);
+    btn.onclick = async () => {
+      const text = ta.value.trim();
+      if (!text) return;
+      btn.disabled = true;
+      note.textContent = "Sending…";
+      try {
+        const r = await fetch(`/v1/handoff/${encodeURIComponent(h.thread_id)}/reply`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Admin-Key": key },
+          body: JSON.stringify({ message: text }),
+        });
+        if (r.ok) {
+          note.textContent = "Sent ✓";
+          ta.disabled = true;
+          setTimeout(() => { c.remove(); refresh(); }, 1500);
+          return;
+        }
+        note.textContent = r.status === 409 ? "Already answered or no longer waiting."
+                                             : `Failed (HTTP ${r.status}).`;
+      } catch (e) { note.textContent = "Network error, try again."; }
+      btn.disabled = false;
+    };
+    return c;
+  }
+
+  async function refresh() {
+    if (!key) return;
+    let r;
+    try { r = await fetch("/v1/handoffs", { headers: { "X-Admin-Key": key } }); }
+    catch (e) { showError("Can't reach the server."); return; }
+    if (r.status === 401 || r.status === 503) {
+      lock();
+      showError(r.status === 401 ? "Wrong admin key." : "Admin key isn't configured on the server.");
+      return;
+    }
+    if (!r.ok) { showError(`Server error (HTTP ${r.status}).`); return; }
+    showError("");
+    const items = await r.json();
+    const list = $("list");
+    const want = new Set(items.map((h) => h.thread_id));
+    // Keep cards that are still waiting (so a half-typed reply survives a refresh).
+    [...list.children].forEach((c) => { if (!want.has(c.dataset.thread)) c.remove(); });
+    const have = new Set([...list.children].map((c) => c.dataset.thread));
+    items.forEach((h) => { if (!have.has(h.thread_id)) list.appendChild(card(h)); });
+    $("summary").textContent = items.length
+      ? `${items.length} waiting · refreshes every 10 s`
+      : "Nobody is waiting. This list refreshes every 10 s.";
+    $("queue").hidden = false;
+    $("key").hidden = true;
+    $("keyForm").querySelector("button[type=submit]").hidden = true;
+    $("lock").hidden = false;
+  }
+
+  function lock() {
+    key = "";
+    try { sessionStorage.removeItem("bsb-admin"); } catch (e) {}
+    clearInterval(timer);
+    $("list").textContent = "";
+    $("queue").hidden = true;
+    $("key").hidden = false;
+    $("key").value = "";
+    $("keyForm").querySelector("button[type=submit]").hidden = false;
+    $("lock").hidden = true;
+  }
+
+  function start() {
+    clearInterval(timer);
+    refresh();
+    timer = setInterval(() => { if (!document.hidden) refresh(); }, 10000);
+  }
+
+  $("keyForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    key = $("key").value.trim();
+    if (!key) return;
+    try { sessionStorage.setItem("bsb-admin", key); } catch (e) {}
+    start();
+  });
+  $("lock").addEventListener("click", () => { lock(); showError(""); });
+  if (key) start();
+})();
+</script>
+</body>
+</html>
