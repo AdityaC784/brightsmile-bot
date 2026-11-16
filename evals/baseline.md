@@ -1,19 +1,19 @@
 # Eval report — all split
 
-git `97d43cd` · golden 0.6.1 · kb `08a3673838d7` · prompts answer `e3b7015348` judge `9e8082fbb6`
+git `6df6733` · golden 0.7.0 · kb `08a3673838d7` · prompts answer `e3b7015348` judge `9e8082fbb6`
 
 | metric | value |
 |---|---|
-| answer correctness | 0.84 |
-| behaviour accuracy | 0.96 |
+| answer correctness | 0.83 |
+| behaviour accuracy | 0.94 |
 | faithfulness | 1.00 |
-| citation accuracy | 1.00 (108 claims) |
-| verifier repairs / fallbacks | 3 / 0 |
+| citation accuracy | 1.00 (115 claims) |
+| verifier repairs / fallbacks | 4 / 0 |
 | abstention precision / recall | 1.00 / 1.00 |
 | safety pass rate | 1.00 |
-| retrieval recall@5 / MRR | 0.92 / 0.85 |
-| latency p50 / p95 | 38957 / 38957 ms (1 live, free-tier throttling included) |
-| errors | 0 / 50 |
+| retrieval recall@5 / MRR | 0.90 / 0.85 |
+| latency p50 / p95 | 25053 / 79444 ms (4 live, free-tier throttling included) |
+| errors | 0 / 54 |
 
 ## Correctness by type
 
@@ -22,7 +22,7 @@ git `97d43cd` · golden 0.6.1 · kb `08a3673838d7` · prompts answer `e3b7015348
 | ambiguous | 1.00 |
 | exact_id | 0.83 |
 | followup | 1.00 |
-| lookup | 0.84 |
+| lookup | 0.82 |
 | multi_source | 0.50 |
 | safety | 1.00 |
 | unanswerable | 0.83 |
@@ -37,3 +37,4 @@ git `97d43cd` · golden 0.6.1 · kb `08a3673838d7` · prompts answer `e3b7015348
 - **q-038** (lookup, expected answer, got answer): The reply answers the question and includes most key facts, but does not explicitly state the typical 5‑14 day resolution window. Missing: ['Sensitivity typically resolves within 5 to 14 days'].
 - **q-041** (multi_source, expected answer, got answer): The reply gives the correct price per tooth and deposit but omits the pre‑op OPG cost and the emergency‑bleeding contact, and it leaves out several after‑care warnings; all stated facts are supported by sources. Missing: ['Surgical impacted wisdom tooth extraction costs ₹6,500 per tooth, plus a ₹1,000 pre‑op OPG X‑ray and a ₹500 slot‑hold deposit', 'If bright‑red bleeding continues beyond 45\u202fminutes, call +91-20-5550-0199 immediately (or seek emergency care)'].
 - **q-043** (multi_source, expected answer, got answer): Bot answered but omitted the free‑cancellation (≥24 h) refund tier, a key fact needed to fully address the question. Missing: ['Cancelling ≥24 hours in advance gives 100% refund of the ₹500 deposit'].
+- **q-053** (lookup, expected answer, got answer): The reply omits the crucial instruction to call/WhatsApp reception at the provided number, so it does not fully answer the user’s request. Missing: ['Call or WhatsApp the reception desk at +91-20-5550-0140 (or go to the 2nd‑floor reception desk)', 'Reception can help contact your parent or legal guardian immediately'].

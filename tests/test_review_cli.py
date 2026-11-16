@@ -6,6 +6,7 @@ from evals.golden_set import GOLDEN_PATH, load_golden
 from evals.review_cli import (
     CHANGELOG_PATH,
     add_changelog_entry,
+    committed_cases,
     doc_ids,
     next_case_id,
     next_version,
@@ -78,6 +79,9 @@ def test_review_accept_reject_defer(tmp_path):
         "",  # type -> default unanswerable
         "DENT-019, DENT-007",  # gold docs
         "says it is not offered; suggests calling",  # must include
+        "",  # must NOT include left empty -> asked again (required for abstain)
+        "says it is not offered; suggests calling",  # must include
+        "a price",  # must NOT include
         "",  # split -> dev
         "r",  # candidate 2: reject
         "d",  # candidate 3: defer
@@ -99,6 +103,7 @@ def test_review_accept_reject_defer(tmp_path):
     assert (new.expected_behavior, new.type, new.split) == ("abstain", "unanswerable", "dev")
     assert new.must_abstain and new.gold_doc_ids == ["DENT-019", "DENT-007"]
     assert new.must_include == ["says it is not offered", "suggests calling"]
+    assert new.must_not_include == ["a price"]
     assert json.loads(golden.read_text("utf-8").splitlines()[-1])["question"] == "Question 1?"
     assert f"- {new.id} (dev, unanswerable): from review candidate #1" in changelog.read_text(
         "utf-8"
@@ -112,3 +117,28 @@ def test_review_empty_answer_cancels_and_writes_nothing(tmp_path):
     counts = review(store, input_fn=_inputs("a", ""), golden_path=golden, changelog_path=changelog)
     assert counts["skipped"] == 1 and store.marked == []
     assert golden.read_text("utf-8") == original
+
+
+def test_version_comes_from_main(tmp_path, monkeypatch):
+    # Every case added on a branch shares one version: it is based on the golden set on main.
+    # git is faked: CI checkouts are shallow and have no origin/main ref.
+    import subprocess
+
+    first = GOLDEN_PATH.read_text("utf-8").splitlines()[0]
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout=first + "\n")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    cases = committed_cases(GOLDEN_PATH)
+    assert [c.id for c in cases] == ["q-001"]
+    assert calls[0][:2] == ["git", "show"] and calls[0][2].startswith("origin/main:")
+    assert committed_cases(tmp_path / "v1.jsonl") is None  # outside the repo -> fall back
+
+    def failing_run(cmd, **kw):
+        raise subprocess.CalledProcessError(128, cmd)  # e.g. no origin/main ref
+
+    monkeypatch.setattr(subprocess, "run", failing_run)
+    assert committed_cases(GOLDEN_PATH) is None

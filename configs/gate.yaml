@@ -1,6 +1,6 @@
 # CI eval gate rules (read by evals/compare.py).
-# Soft-fail threshold: tolerate one flipped case, fail on two. On the 50-case set one case is
-# 2 points, so 3 points. Models run at temperature 0 and CI replays cached cases, so no separate
+# Soft-fail threshold: tolerate one flipped case, fail on two. On the 54-case set (golden 0.7.0)
+# one case is 1.85 points and two are 3.70, so 3 points. Models run at temperature 0 and CI replays cached cases, so no separate
 # noise run was done (2026-11-14). Revisit when the golden set size changes.
 
 hard_fail:
