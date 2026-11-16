@@ -48,7 +48,8 @@ class _LeadExtract(BaseModel):
     timeline: str | None = None
     budget: str | None = None
     name: str | None = None
-    contact: str | None = None
+    phone: str | None = None
+    email: str | None = None
     consent: Literal["yes", "no", "unclear"] = "unclear"
     question: str | None = None
 
@@ -231,7 +232,8 @@ class Nodes:
 
     def lead(self, state: ChatState) -> dict:
         """Slot-filling with consent. Helps first, asks for contact only after the need is
-        known, and saves ONLY after explicit consent with a name and a contact."""
+        known, and saves ONLY after explicit consent with a name and a phone number (email is
+        optional; both are stored in the lead's contact field)."""
         c = self.cfg["clinic"]
         consent_text = self.cfg["lead"]["consent_text"].strip()
         prompt = (
@@ -251,7 +253,7 @@ class Nodes:
         # once they say yes, so the recorded consent_text is what they actually saw.
         consented = stage == "awaiting_consent" and ex.consent == "yes"
         if consented:
-            for k in ("name", "contact"):
+            for k in ("name", "phone", "email"):
                 if getattr(ex, k):
                     slots[k] = getattr(ex, k)
 
@@ -263,8 +265,8 @@ class Nodes:
             citations = r.citations
 
         if ex.consent == "no":
-            slots.pop("name", None)
-            slots.pop("contact", None)
+            for k in ("name", "phone", "email"):
+                slots.pop(k, None)
             stage = "declined"
             parts.append(
                 "No problem, I won't take any personal details. If you change your mind, you can "
@@ -272,12 +274,12 @@ class Nodes:
             )
         elif not slots.get("need"):
             parts.append("Happy to help you get started. Which treatment are you interested in?")
-        elif consented and slots.get("name") and slots.get("contact"):
+        elif consented and slots.get("name") and slots.get("phone"):
             try:
                 slots["lead_id"] = save_lead(
                     state.get("thread_id", ""),
                     name=slots["name"],
-                    contact=slots["contact"],
+                    contact=", ".join(v for v in (slots["phone"], slots.get("email")) if v),
                     need=slots.get("need"),
                     timeline=slots.get("timeline"),
                     budget=slots.get("budget"),
@@ -302,21 +304,17 @@ class Nodes:
             )
             parts.append(consent_text + ask_when)
         else:  # agreed but something is missing, or consent still unclear
-            missing = [k for k in ("name", "contact") if not slots.get(k)]
+            missing = [k for k in ("name", "phone") if not slots.get(k)]
             if consented and missing:
                 parts.append(
                     "Thanks! Could you also share your "
-                    + (
-                        " and ".join(
-                            "phone number or email" if m == "contact" else m for m in missing
-                        )
-                    )
+                    + " and ".join("phone number" if m == "phone" else m for m in missing)
                     + "?"
                 )
             else:
                 parts.append(
                     "Just to confirm: may our team contact you about this? If yes, please reply "
-                    "with your name and a phone number or email."
+                    "with your name and phone number (an email address is optional)."
                 )
 
         text = "\n\n".join(parts)

@@ -34,9 +34,9 @@ emergency_fallback_answer: >-
 lead:
   # Shown before any personal details are taken; stored with the lead as the consent record.
   consent_text: >-
-    Would you like our team to contact you about this? If yes, please reply with your name and a
-    phone number or email. We'll use them only to follow up on this enquiry, never share or sell
-    them, and you can ask us to delete them at any time.
+    Would you like our team to contact you about this? If yes, please reply with your name and
+    phone number (an email address is optional). We'll use them only to follow up on this
+    enquiry, never share or sell them, and you can ask us to delete them at any time.
 
 # Staff conversations (handoff). Staff hold the chat until they end it, until the patient has
 # waited `staff_timeout_seconds` without a staff reply, or until the patient's page has been gone
