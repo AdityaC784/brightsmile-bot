@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{clinic_name}} Leads</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #5d6677; --line: #e1e5ec;
+    --accent: #0f766e; --accent-text: #ffffff; --soft: #f1f4f8; --err: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #11151c; --panel: #171c25; --text: #e6e9ef; --muted: #9aa3b2; --line: #2a3140;
+      --accent: #2dd4bf; --accent-text: #06231f; --soft: #1f2632; --err: #ff8a80;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  a { color: var(--accent); }
+  .muted { color: var(--muted); font-size: 13px; }
+  .err { color: var(--err); font-size: 13px; }
+  form.key { display: flex; gap: 8px; margin: 14px 0; flex-wrap: wrap; }
+  input { font: inherit; color: var(--text); background: var(--panel); flex: 1; min-width: 200px;
+          border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  button { border: 0; border-radius: 10px; padding: 8px 14px; background: var(--accent);
+           color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
+  button.secondary { background: var(--soft); color: var(--text); font-weight: 400; }
+  button:disabled { opacity: .5; cursor: default; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+          padding: 12px 14px; margin: 12px 0; }
+  .card header { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .contact { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 8px 0 0; }
+  dt { color: var(--muted); font-size: 13px; }
+  dd { margin: 0; overflow-wrap: anywhere; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>{{clinic_name}} · Leads</h1>
+  <p class="muted">Patients who left their name and contact in the chat. Each one agreed to the
+    consent text first; the time they agreed is shown. Delete a lead when the patient asks or
+    when it is no longer needed. <a href="/staff">Staff handoffs</a></p>
+
+  <form class="key" id="keyForm">
+    <input id="key" type="password" autocomplete="off" placeholder="Admin key"
+           aria-label="Admin key">
+    <button type="submit">Open</button>
+    <button type="button" class="secondary" id="reload" hidden>Refresh</button>
+  </form>
+  <p class="err" id="error" hidden></p>
+
+  <section id="leads" hidden>
+    <p class="muted" id="summary"></p>
+    <div id="list"></div>
+  </section>
+</main>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  let key = "";
+  try { key = sessionStorage.getItem("bsb-admin") || ""; } catch (e) {}
+  const headers = () => ({ "X-Admin-Key": key });
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  };
+  const when = (iso) => (iso ? new Date(iso).toLocaleString() : "");
+  const showError = (text) => { $("error").textContent = text; $("error").hidden = !text; };
+
+  function card(l) {
+    const c = el("div", "card");
+    const head = el("header");
+    head.append(el("strong", null, l.name), el("span", "muted", when(l.created_at)));
+    c.append(head, el("div", "contact", l.contact));
+    const dl = el("dl");
+    [["Need", l.need], ["Budget", l.budget], ["Timeline", l.timeline],
+     ["Consent given", when(l.consent_at)], ["Chat", l.thread_id]].forEach(([k, v]) => {
+      if (!v) return;
+      dl.append(el("dt", null, k), el("dd", null, v));
+    });
+    c.appendChild(dl);
+    const row = el("div", "row");
+    const del = el("button", "secondary", "Delete");
+    const note = el("span", "muted");
+    row.append(del, note);
+    c.appendChild(row);
+    del.onclick = async () => {
+      if (!confirm(`Delete the lead for ${l.name}? This can't be undone.`)) return;
+      del.disabled = true;
+      try {
+        const r = await fetch(`/v1/leads/${encodeURIComponent(l.id)}`,
+                              { method: "DELETE", headers: headers() });
+        if (r.ok || r.status === 404) { load(); return; }
+        note.textContent = `Failed (HTTP ${r.status}).`;
+      } catch (e) { note.textContent = "Network error, try again."; }
+      del.disabled = false;
+    };
+    return c;
+  }
+
+  async function load() {
+    if (!key) return;
+    let r;
+    try { r = await fetch("/v1/leads", { headers: headers() }); }
+    catch (e) { showError("Can't reach the server."); return; }
+    if (r.status === 401 || r.status === 503) {
+      key = "";
+      try { sessionStorage.removeItem("bsb-admin"); } catch (e) {}
+      $("leads").hidden = true;
+      $("key").hidden = false;
+      $("keyForm").querySelector("button[type=submit]").hidden = false;
+      $("reload").hidden = true;
+      showError(r.status === 401 ? "Wrong admin key." : "Admin key isn't configured on the server.");
+      return;
+    }
+    if (!r.ok) { showError(`Server error (HTTP ${r.status}).`); return; }
+    showError("");
+    const items = await r.json();
+    const list = $("list");
+    list.textContent = "";
+    items.forEach((l) => list.appendChild(card(l)));
+    $("summary").textContent = items.length ? `${items.length} lead(s), newest first.` : "No leads yet.";
+    $("leads").hidden = false;
+    $("key").hidden = true;
+    $("keyForm").querySelector("button[type=submit]").hidden = true;
+    $("reload").hidden = false;
+  }
+
+  $("keyForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    key = $("key").value.trim();
+    if (!key) return;
+    try { sessionStorage.setItem("bsb-admin", key); } catch (e) {}
+    load();
+  });
+  $("reload").addEventListener("click", load);
+  if (key) load();
+})();
+</script>
+</body>
+</html>

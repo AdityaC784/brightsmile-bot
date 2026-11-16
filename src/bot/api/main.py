@@ -15,6 +15,7 @@ POST /v1/ingest                      re-index the KB                            
 GET  /v1/health                      KB version, chunk count, DB status
 GET  /                              chat page (static/index.html)
 GET  /staff                         staff page for handoffs (static/staff.html; uses the admin key)
+GET  /leads                         leads page, opened from the staff page (static/leads.html)
 
 Streaming note: replies are verified before they are shown, so the stream sends a status
 event, then the *verified* answer in chunks, then a `done` event with citations. Streaming raw
@@ -325,6 +326,10 @@ def create_app(graph=None, *, persist_turns: bool = True) -> FastAPI:
     @app.get("/staff", response_class=HTMLResponse, include_in_schema=False)
     async def staff_page():
         return _page("staff.html")
+
+    @app.get("/leads", response_class=HTMLResponse, include_in_schema=False)
+    async def leads_page():
+        return _page("leads.html")
 
     @app.get("/v1/health")
     async def health():

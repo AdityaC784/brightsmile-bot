@@ -56,6 +56,7 @@
            aria-label="Admin key">
     <button type="submit">Open</button>
     <button type="button" class="secondary" id="lock" hidden>Lock</button>
+    <button type="button" class="secondary" id="leadsBtn">Leads</button>
   </form>
   <p class="err" id="error" hidden></p>
 
@@ -241,6 +242,9 @@
     start();
   });
   $("lock").addEventListener("click", () => { lock(); showError(""); });
+  // New tab, so this page stays open and staff stay online. window.open (not a noopener link)
+  // copies this tab's sessionStorage, so the leads page gets the admin key too.
+  $("leadsBtn").addEventListener("click", () => window.open("/leads", "_blank"));
   if (key) start();
 })();
 </script>
