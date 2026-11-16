@@ -255,13 +255,7 @@ def test_staff_page_served():
     with _client() as c:
         r = c.get("/staff")
     assert r.status_code == 200 and "/v1/handoffs" in r.text and "{{" not in r.text
-    assert 'window.open("/leads"' in r.text
-
-
-def test_leads_page_served():
-    with _client() as c:
-        r = c.get("/leads")
-    assert r.status_code == 200 and "/v1/leads" in r.text and "{{" not in r.text
+    assert "/v1/leads" in r.text  # leads are a view on the same page
 
 
 def test_nobody_online_gets_the_offline_message_at_once(admin_key):

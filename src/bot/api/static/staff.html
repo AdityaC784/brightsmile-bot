@@ -40,6 +40,10 @@
        overflow-wrap: anywhere; }
   .m b { font-size: 12px; color: var(--muted); display: block; }
   .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  .contact { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 8px 0 0; }
+  dt { color: var(--muted); font-size: 13px; }
+  dd { margin: 0; overflow-wrap: anywhere; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -55,14 +59,26 @@
     <input id="key" type="password" autocomplete="off" placeholder="Admin key"
            aria-label="Admin key">
     <button type="submit">Open</button>
+    <button type="button" class="secondary" id="leadsBtn" hidden>Leads</button>
     <button type="button" class="secondary" id="lock" hidden>Lock</button>
-    <button type="button" class="secondary" id="leadsBtn">Leads</button>
   </form>
   <p class="err" id="error" hidden></p>
 
   <section id="queue" hidden>
     <p class="muted" id="summary"></p>
     <div id="list"></div>
+  </section>
+
+  <section id="leadsView" hidden>
+    <div class="row">
+      <button type="button" class="secondary" id="back">← Back to chats</button>
+      <button type="button" class="secondary" id="leadsRefresh">Refresh</button>
+    </div>
+    <p class="muted">Patients who left their name and contact in the chat; each agreed to the
+      consent text first. Delete a lead when the patient asks or it is no longer needed. Open
+      chats keep refreshing while you are here.</p>
+    <p class="muted" id="leadsSummary"></p>
+    <div id="leadsList"></div>
   </section>
 </main>
 <script>
@@ -72,6 +88,7 @@
   let key = "";
   try { key = sessionStorage.getItem("bsb-admin") || ""; } catch (e) {}
   let timer = null;
+  let view = "chats"; // "chats" or "leads"; switching never leaves the page, so staff stay online
   const baseTitle = document.title;
   // One id per open staff page, so one tab closing doesn't mark other staff offline.
   let session = "";
@@ -207,10 +224,67 @@
     $("summary").textContent = items.length
       ? `${items.length} open chat(s), ${waiting} waiting for a reply · refreshes every 5 s`
       : "No open chats. This list refreshes every 5 s.";
-    $("queue").hidden = false;
+    $("queue").hidden = view !== "chats";
     $("key").hidden = true;
     $("keyForm").querySelector("button[type=submit]").hidden = true;
     $("lock").hidden = false;
+    $("leadsBtn").hidden = view !== "chats";
+  }
+
+  // ------------------------------------------------------------------ leads view
+  const when = (iso) => (iso ? new Date(iso).toLocaleString() : "");
+
+  function leadCard(l) {
+    const c = el("div", "card");
+    const head = el("header");
+    head.append(el("strong", null, l.name), el("span", "muted", when(l.created_at)));
+    c.append(head, el("div", "contact", l.contact));
+    const dl = el("dl");
+    [["Need", l.need], ["Budget", l.budget], ["Timeline", l.timeline],
+     ["Consent given", when(l.consent_at)], ["Chat", l.thread_id]].forEach(([k, v]) => {
+      if (v) dl.append(el("dt", null, k), el("dd", null, v));
+    });
+    const row = el("div", "row");
+    const del = el("button", "secondary", "Delete");
+    const note = el("span", "muted");
+    row.append(del, note);
+    c.append(dl, row);
+    del.onclick = async () => {
+      if (!confirm(`Delete the lead for ${l.name}? This can't be undone.`)) return;
+      del.disabled = true;
+      try {
+        const r = await fetch(`/v1/leads/${encodeURIComponent(l.id)}`,
+                              { method: "DELETE", headers: headers() });
+        if (r.ok || r.status === 404) { loadLeads(); return; }
+        note.textContent = `Failed (HTTP ${r.status}).`;
+      } catch (e) { note.textContent = "Network error, try again."; }
+      del.disabled = false;
+    };
+    return c;
+  }
+
+  async function loadLeads() {
+    if (!key) return;
+    let r;
+    try { r = await fetch("/v1/leads", { headers: headers() }); }
+    catch (e) { showError("Can't reach the server."); return; }
+    if (r.status === 401 || r.status === 503) { lock(); showError("Wrong admin key."); return; }
+    if (!r.ok) { showError(`Server error (HTTP ${r.status}).`); return; }
+    showError("");
+    const items = await r.json();
+    const list = $("leadsList");
+    list.textContent = "";
+    items.forEach((l) => list.appendChild(leadCard(l)));
+    $("leadsSummary").textContent = items.length
+      ? `${items.length} lead(s), newest first.` : "No leads yet.";
+  }
+
+  function showView(v) {
+    view = v;
+    $("queue").hidden = v !== "chats";
+    $("leadsView").hidden = v !== "leads";
+    $("leadsBtn").hidden = v !== "chats";
+    if (v === "leads") loadLeads();
   }
 
   function lock() {
@@ -219,7 +293,11 @@
     try { sessionStorage.removeItem("bsb-admin"); } catch (e) {}
     clearInterval(timer);
     $("list").textContent = "";
+    $("leadsList").textContent = "";
+    view = "chats";
     $("queue").hidden = true;
+    $("leadsView").hidden = true;
+    $("leadsBtn").hidden = true;
     $("key").hidden = false;
     $("key").value = "";
     $("keyForm").querySelector("button[type=submit]").hidden = false;
@@ -242,9 +320,9 @@
     start();
   });
   $("lock").addEventListener("click", () => { lock(); showError(""); });
-  // New tab, so this page stays open and staff stay online. window.open (not a noopener link)
-  // copies this tab's sessionStorage, so the leads page gets the admin key too.
-  $("leadsBtn").addEventListener("click", () => window.open("/leads", "_blank"));
+  $("leadsBtn").addEventListener("click", () => showView("leads"));
+  $("back").addEventListener("click", () => showView("chats"));
+  $("leadsRefresh").addEventListener("click", loadLeads);
   if (key) start();
 })();
 </script>
