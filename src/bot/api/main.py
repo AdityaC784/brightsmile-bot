@@ -42,6 +42,7 @@ from sse_starlette.sse import EventSourceResponse
 from starlette.concurrency import run_in_threadpool
 
 from bot.api import staff, turns
+from bot.api.ratelimit import RateLimiter, client_ip
 from bot.api.schemas import ChatIn, ChatOut, FeedbackIn, HumanReplyIn
 from bot.config import get_settings, load_yaml
 from bot.graph.builder import build_graph, new_turn
@@ -89,6 +90,7 @@ def create_app(graph=None, *, persist_turns: bool = True) -> FastAPI:
     app = FastAPI(title="BrightSmile Dental Care assistant", version="0.1.0", lifespan=lifespan)
     app.state.persist_turns = persist_turns
     app.state.presence = staff.Presence()
+    app.state.limiter = RateLimiter(**load_yaml("generation")["rate_limit"])
     app.add_middleware(
         CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "POST"], allow_headers=["*"]
     )
@@ -104,6 +106,17 @@ def create_app(graph=None, *, persist_turns: bool = True) -> FastAPI:
 
     async def _run_turn(request: Request, body: ChatIn) -> ChatOut:
         thread_id = body.thread_id or f"web-{uuid.uuid4().hex[:12]}"
+        ip = client_ip(request.headers, request.client.host if request.client else None)
+        limit = request.app.state.limiter.check(thread_id, ip)
+        if limit:  # before any LLM call: protects the shared daily quota
+            log.warning("chat.rate_limited", thread_id=thread_id, limit=limit)
+            return ChatOut(
+                thread_id=thread_id,
+                message_id=None,
+                intent=None,
+                behavior="abstain",
+                answer=load_yaml("generation")["rate_limit_answer"].strip(),
+            )
         cfg = {"configurable": {"thread_id": thread_id}}
         t0 = time.perf_counter()
         persist, presence = request.app.state.persist_turns, request.app.state.presence
@@ -123,13 +136,12 @@ def create_app(graph=None, *, persist_turns: bool = True) -> FastAPI:
             out = await run_in_threadpool(request.app.state.graph.invoke, turn, cfg)
         except Exception as e:  # provider outage, quota, DB error: never leave the user hanging
             log.error("chat.failed", thread_id=thread_id, error=type(e).__name__)
-            fallback = load_yaml("generation")["fallback_answer"].strip()
             return ChatOut(
                 thread_id=thread_id,
                 message_id=None,
                 intent=None,
                 behavior="abstain",
-                answer=fallback,
+                answer=load_yaml("generation")["error_answer"].strip(),
             )
         reply = out.get("reply") or {}
         pending = bool(out.get("handoff_pending"))

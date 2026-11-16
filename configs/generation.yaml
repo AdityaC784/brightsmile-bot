@@ -15,6 +15,28 @@ fallback_answer: >-
   want to guess. Our reception team can help: call or WhatsApp +91-20-5550-0140
   (Mon–Sat, 09:30 AM – 08:30 PM IST) or book at https://brightsmile.example/book.
 
+# Shown when an LLM call fails (provider outage, quota, network). The bot may not know yet
+# whether the message is an emergency, so the emergency route is always included.
+error_answer: >-
+  Sorry, I'm having a technical problem right now. Please call or WhatsApp reception on
+  +91-20-5550-0140 (Mon–Sat, 09:30 AM – 08:30 PM IST) or book at https://brightsmile.example/book.
+  If this is an emergency (spreading facial or neck swelling, difficulty breathing or swallowing,
+  or bleeding that hasn't stopped after 45 minutes), call 112 (or 108 for an ambulance) or go
+  straight to Jupiter Hospital, Baner or Manipal Hospital, Baner.
+
+# Chat message limits, checked before any LLM call (src/bot/api/ratelimit.py). Over the limit,
+# the patient gets rate_limit_answer, which also carries the emergency route.
+rate_limit:
+  per_chat_per_minute: 10
+  per_chat_per_day: 60
+  per_ip_per_day: 100
+rate_limit_answer: >-
+  You've sent a lot of messages in a short time, so I'm pausing for now. Please call or WhatsApp
+  reception on +91-20-5550-0140 (Mon–Sat, 09:30 AM – 08:30 PM IST) or book at
+  https://brightsmile.example/book. If this is an emergency (spreading facial or neck swelling,
+  difficulty breathing or swallowing, or bleeding that hasn't stopped after 45 minutes), call 112
+  (or 108 for an ambulance) or go straight to Jupiter Hospital, Baner or Manipal Hospital, Baner.
+
 # Fallback for emergency (handoff) replies that fail verification: never downgrade an emergency
 # to "call reception during office hours". Facts from DENT-035 §5 / DENT-002 §6 / DENT-036 §3.
 emergency_fallback_answer: >-
