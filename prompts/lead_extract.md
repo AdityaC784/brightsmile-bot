@@ -7,7 +7,9 @@ Fields (use null when the patient hasn't said it):
 - `timeline`: when they want it (e.g. "next week", "after Diwali").
 - `budget`: any budget they mention.
 - `name`: their name, only if they gave it.
-- `contact`: a phone number or email, only if they gave it, exactly as written.
+- `phone`: their phone number, only if they gave it, exactly as written.
+- `email`: their email address, only if they gave it, exactly as written. A patient may give
+  both a phone number and an email: fill both fields.
 - `consent`: "yes" only if the patient clearly agrees to be contacted / to share their details
   (e.g. "yes, please call me", or giving their number in reply to the consent question);
   "no" if they decline or say they don't want to share details; otherwise "unclear".

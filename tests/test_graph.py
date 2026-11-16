@@ -164,7 +164,8 @@ def _ex(**kw):
         "timeline": None,
         "budget": None,
         "name": None,
-        "contact": None,
+        "phone": None,
+        "email": None,
         "consent": "unclear",
         "question": None,
     }
@@ -176,7 +177,7 @@ def test_lead_flow_asks_consent_then_saves_once(saved):
         {"intent": "lead"},
         _ex(need="teeth whitening"),
         {"intent": "support"},
-        _ex(name="Priya", contact="9876543210", consent="yes"),
+        _ex(name="Priya", phone="9876543210", consent="yes"),
     )
     out1 = _ask(graph, "L1", "I want to get my teeth whitened")
     assert out1["lead_stage"] == "awaiting_consent"
@@ -185,16 +186,45 @@ def test_lead_flow_asks_consent_then_saves_once(saved):
     assert out2["lead_stage"] == "saved" and len(saved) == 1
     assert saved[0]["consented"] is True and saved[0]["thread_id"] == "L1"
     assert saved[0]["need"] == "teeth whitening" and "Priya" in out2["reply"]["answer"]
+    assert saved[0]["contact"] == "9876543210"  # email is optional
+
+
+def test_lead_with_phone_and_email_keeps_both(saved):
+    graph, _, _ = _graph(
+        {"intent": "lead"},
+        _ex(need="braces"),
+        {"intent": "support"},
+        _ex(name="Ravi", phone="98765 43210", email="ravi@example.com", consent="yes"),
+    )
+    _ask(graph, "L5", "I need braces")
+    out = _ask(graph, "L5", "Yes. Ravi, ravi@example.com, 98765 43210")
+    assert out["lead_stage"] == "saved"
+    assert saved[0]["contact"] == "98765 43210, ravi@example.com"
+
+
+def test_lead_with_only_email_asks_for_phone(saved):
+    graph, _, _ = _graph(
+        {"intent": "lead"},
+        _ex(need="crown"),
+        {"intent": "support"},
+        _ex(name="Asha", email="asha@example.com", consent="yes"),
+    )
+    _ask(graph, "L6", "I need a crown")
+    out = _ask(graph, "L6", "Yes, Asha, asha@example.com")
+    assert saved == [] and out["lead_stage"] == "awaiting_consent"
+    assert "phone number" in out["reply"]["answer"]
 
 
 def test_details_volunteered_before_consent_text_are_not_kept(saved):
     graph, _, _ = _graph(
         {"intent": "lead"},
-        _ex(need="braces", name="Ravi", contact="ravi@example.com", consent="yes"),
+        _ex(
+            need="braces", name="Ravi", phone="9876543210", email="ravi@example.com", consent="yes"
+        ),
     )
-    out = _ask(graph, "L2", "Book me for braces, I'm Ravi ravi@example.com, call me")
+    out = _ask(graph, "L2", "Book me for braces, I'm Ravi ravi@example.com 9876543210, call me")
     assert saved == [] and out["lead_stage"] == "awaiting_consent"
-    assert "name" not in out["lead"] and "contact" not in out["lead"]
+    assert not {"name", "phone", "email"} & set(out["lead"])
 
 
 def test_decline_keeps_no_personal_data(saved):

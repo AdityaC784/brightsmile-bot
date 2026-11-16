@@ -14,7 +14,7 @@ GET  /v1/leads, DELETE /v1/leads/{id}                                           
 POST /v1/ingest                      re-index the KB                                  [admin]
 GET  /v1/health                      KB version, chunk count, DB status
 GET  /                              chat page (static/index.html)
-GET  /staff                         staff page for handoffs (static/staff.html; uses the admin key)
+GET  /staff                         staff page: handoffs + leads (static/staff.html; uses the admin key)
 
 Streaming note: replies are verified before they are shown, so the stream sends a status
 event, then the *verified* answer in chunks, then a `done` event with citations. Streaming raw

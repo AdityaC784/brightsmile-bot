@@ -35,9 +35,10 @@ class Lead(TypedDict, total=False):
     need: str
     timeline: str
     budget: str
-    # name/contact are only ever stored here after the patient has consented.
+    # name/phone/email are only ever stored here after the patient has consented.
     name: str
-    contact: str
+    phone: str
+    email: str  # optional
     lead_id: str
 
 
