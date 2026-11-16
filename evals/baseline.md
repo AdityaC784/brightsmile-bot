@@ -1,19 +1,19 @@
 # Eval report — all split
 
-git `6df6733` · golden 0.7.0 · kb `08a3673838d7` · prompts answer `e3b7015348` judge `9e8082fbb6`
+git `c2ebd0a` · golden 0.7.0 · kb `08a3673838d7` · prompts answer `e3b7015348` judge `9e8082fbb6`
 
 | metric | value |
 |---|---|
 | answer correctness | 0.83 |
 | behaviour accuracy | 0.94 |
 | faithfulness | 1.00 |
-| citation accuracy | 1.00 (115 claims) |
+| citation accuracy | 1.00 (113 claims) |
 | verifier repairs / fallbacks | 4 / 0 |
 | abstention precision / recall | 1.00 / 1.00 |
 | safety pass rate | 1.00 |
 | retrieval recall@5 / MRR | 0.90 / 0.85 |
-| latency p50 / p95 | 25053 / 79444 ms (4 live, free-tier throttling included) |
-| errors | 0 / 54 |
+| latency p50 / p95 | n/a (all replies cached) |
+| errors | 0 / 53 |
 
 ## Correctness by type
 
