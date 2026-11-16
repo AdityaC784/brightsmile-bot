@@ -22,7 +22,7 @@ from bot.llm.client import get_llm
 from bot.prompts import load_prompt
 from bot.retrieval.hybrid import HybridRetriever
 from evals.golden_set import load_golden
-from evals.retrieval_eval import MRR_DEPTH, reciprocal_rank, recall_at_k
+from evals.retrieval_eval import MRR_DEPTH, recall_at_k, reciprocal_rank
 
 
 def rewrite_check() -> None:
