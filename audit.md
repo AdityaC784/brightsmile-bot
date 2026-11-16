@@ -1,7 +1,7 @@
 # BrightSmile Bot — Project Audit
 
 *Written 2026-11-13, end of day 1; updated 2026-11-15 (day 2: re-measure, golden set 50,
-baseline, GitHub CI). Covers everything built so far, how the program works end to
+baseline, GitHub CI) and 2026-11-16 (feedback loop, golden 0.7.0, leads view, README). Covers everything built so far, how the program works end to
 end, how it is measured, what the numbers say, the decisions behind it, the mistakes made, and
 what is still open. Companion documents: `docs/PLAN.md` (the original plan), `docs/results.md`
 (every measured number, in order), `evals/golden/CHANGELOG.md` (every change to the test set).*
@@ -33,11 +33,11 @@ answers **44 of 53** correctly by the validated judge, with faithfulness and cit
 | Evaluation (golden set, judge, labels) | 53 cases (41 dev / 12 holdout), 3 from production feedback via `make review`; judge validated against hand labels |
 | CI gate | Baseline committed (0.83 on 53); `ci` and eval-gate green on `main`; LLM cache filled; bad-PR demo blocked by the gate (`docs/img/`) |
 | Live | API + chat page on Render (https://brightsmile-bot.onrender.com), Postgres on Neon |
-| Staff chat | `/staff` page: live chats with presence, End chat, timeouts; see §3.6–3.7 |
-| Open | **Safety gap: the bot sometimes doesn't say it can't place calls ("call 112", q-054 held back)**; lead/safety eval sets, README + demo video |
+| Staff chat | `/staff` page: live chats with presence, End chat, timeouts (§3.6–3.7); Leads view: table of consented leads (phone required, email optional) with Delete |
+| Open | **Safety gap: the bot sometimes doesn't say it can't place calls ("call 112", q-054 held back)**; lead/safety eval sets, demo video, 2 more real feedback cases |
 
-Codebase: ~4,050 lines of application/eval Python, ~1,190 lines of tests, **83 tests passing**,
-19 commits.
+Codebase: ~4,700 lines of application/eval Python, ~1,620 lines of tests, **106 tests passing**,
+47 commits.
 
 ---
 
@@ -445,7 +445,11 @@ metric trusting the model's label instead of the reply text.
 
 ## 9. Known limitations
 
-- Golden set of 50 (12 holdout): one case = 2 points (8 on holdout); noise not measured separately.
+- Golden set of 53 (12 holdout): one case ≈ 1.9 points (8 on holdout); noise not measured
+  separately. Groq isn't fully deterministic at temperature 0, so a borderline case can pass on
+  one fresh run and fail on the next (q-054).
+- Open safety gap: asked to "call 112", the bot sometimes doesn't say it can't place calls
+  (q-054 held back; fix planned as one prompt line + a full eval run).
 - Multi-rule totals (e.g. package refund after partial treatment) are not computed.
 - Judge validated on 24 replies labelled by the project owner — enough to catch leniency, not a
   precise reliability figure; it can still miss subtle condition errors.
@@ -457,8 +461,10 @@ metric trusting the model's label instead of the reply text.
 - Retrieval-score abstention is switched off (`min_top_score: 0.0`) pending the plan's threshold
   experiment.
 - Free-tier quotas (Groq 200k tokens/day per model per key, rolling 24 h): a full uncached eval
-  of 50 cases (~230k generator tokens) needs more than one key-day; CI relies on its cache.
-- No deployment, widget or demo video yet (plan Week 4).
+  of 50 cases (~230k generator tokens) needs more than one key-day; CI relies on its cache. When
+  the quota runs out, the bot shows its safe fallback message ("not able to confirm…"), which
+  can read as if the clinic doesn't offer the service.
+- Free Render hosting sleeps when idle (first request 30–50 s). No demo video yet.
 
 ---
 
@@ -481,7 +487,7 @@ src/bot/
   config.py, prompts.py
 evals/          golden/ (v1.jsonl, CHANGELOG), golden_set, retrieval_eval, runner, judge,
                 judge_agreement, compare (CI gate), judge_labels/
-tests/          83 tests (scripted LLMs; DB tests skip without Postgres)
+tests/          106 tests (scripted LLMs; DB tests skip without Postgres)
 docs/           PLAN.md, results.md
 .github/workflows/  ci.yml, eval-gate.yml
 ```
@@ -509,8 +515,13 @@ uv run python -m bot.llm.check_models             # are the configured models li
 
 ## 12. What's next (in order)
 
-1. **Feedback loop**: `make review` points to a missing `evals/review_cli.py`; add a minimal one,
-   then you write answers for ≥5 real cases → golden 0.7.0 → new baseline.
-2. **README + 3-minute demo video**.
-3. Later, optional: lead/safety eval sets, follow-up-rewrite measurement, a second provider
-   (e.g. NVIDIA) only as a recorded experiment with its own baseline.
+Done on day 4: `make review` (PR #6), golden 0.7.0 with 3 real cases (PRs #7–#8), leads view on
+the staff page with phone required (PR #9), README refresh.
+
+1. **Demo video** (3 minutes; shot list in `docs/demo-script.md`), then add the link to the README.
+2. **Two more real cases** via `make review --neon` to reach the plan's "≥ 5 real cases".
+3. **"Call 112" fix**: one prompt line + q-054 back (as abstain) + a full uncached eval run
+   (~2 days of free quota) + new baseline.
+4. Later, optional: a clearer message when the LLM provider fails; judge labels 24 → 30;
+   lead/safety eval sets; follow-up-rewrite measurement; a second provider only as a recorded
+   experiment with its own baseline.
