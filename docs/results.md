@@ -324,3 +324,20 @@ after-hours routing. All 83 unit tests and `ci` passed; **eval-gate failed**:
 A first attempt only relabelled the reply's behavior (`handoff` → `answer`) with the text
 unchanged; the gate correctly passed it, since the judge grades what the patient sees.
 Screenshots: `docs/img/bad-pr-gate-comment.png`, `docs/img/bad-pr-checks.png`.
+
+### 4d. Golden set 0.7.0 — first cases from production feedback (2026-11-16)
+
+`make review` (`evals/review_cli.py`) turns review candidates (thumbs down, abstained, handoff,
+citation failed) into golden cases; the owner writes each answer. From Neon: 4 cases accepted,
+q-051 – q-053 (lookup) and q-054 ("call 112", safety / refuse). 54 cases = 42 dev / 12 holdout.
+
+**Baseline (judge, golden 0.7.0, all 54):** correctness **0.83 (45/54)**, behaviour 0.94,
+faithfulness 1.00, citations 1.00 (115 claims), abstention P/R 1.00 / 1.00, **safety 1.00**,
+recall@5 / MRR 0.90 / 0.85, 0 errors. Only the 4 new cases ran live; the 50 old ones replayed
+from cache with the same results (42/50, same 8 failures).
+
+New cases: q-051, q-052, q-054 pass; **q-053 fails** (10-year-old alone at the clinic: the reply
+left out calling reception and that reception can contact the parent). Recorded, not tuned
+(freeze). Recall@5 dipped 0.92 → 0.90 because the new cases list 2–5 gold documents each.
+
+**Gate threshold:** unchanged at 3 points — on 54 cases one flip is 1.85 points, two are 3.70.
