@@ -43,6 +43,10 @@ flowchart LR
   and the bot answers them even while staff hold the chat.
 - **Leads** are saved only after the consent text was shown and the patient agreed. A phone
   number is required, email is optional.
+- **Rate limits** protect the shared free LLM quota: 10 messages a minute and 60 a day per chat,
+  100 a day per visitor IP ([`configs/generation.yaml`](configs/generation.yaml)). Over the limit,
+  or when the LLM provider fails, the patient gets a fixed message with reception's number and the
+  emergency route, with no LLM call.
 - **Staff page** (`/staff`, one admin-key login): live chats with patient online/away/left,
   several replies, End chat, timeouts; a **Leads** view lists every lead in a table (phone and
   email in separate columns) with Delete.
@@ -137,7 +141,8 @@ On Windows without `make`, run the command from the matching target in the [`Mak
 - **Judge validated on 24 replies**: enough to catch a lenient judge, not a precise reliability
   figure.
 - **Free-tier quotas** (Groq: 200k tokens/day per model): a full uncached eval needs about two
-  days, and when the quota runs out the bot shows its safe fallback message.
+  days. Rate limits slow quota use but don't stop a determined script (it can fake its IP header
+  and open new chats); when the quota runs out, patients get the "technical problem" message.
 - **Contact details** typed in chat are redacted from logs and saved to `leads` only with
   consent, but remain in the LangGraph checkpoint transcript.
 - Synthetic KB: a few internal inconsistencies were found and fixed (see the golden CHANGELOG).

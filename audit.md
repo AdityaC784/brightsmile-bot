@@ -77,6 +77,7 @@ Day 1 is 2026-11-13, day 2 is 2026-11-14. Times are commit times.
 | — | PR #6 | **`make review`** (`evals/review_cli.py`): accept / reject / defer review candidates; accepted ones become golden cases with your answer. |
 | — | — | **Golden 0.7.0 → 53 cases**, 3 from live conversations. New baseline 0.83 (44/53); old 50 unchanged, q-053 fails. Gate threshold stays 3. |
 | — | — | **q-054 ("call 112") held back.** Passed locally; in CI the reply left out "I cannot place calls" → safety hard fail. Real gap; fix + case go in their own PR. |
+| — | — | **Rate limits + error message.** 10/min, 60/day per chat, 100/day per IP, checked before any LLM call; LLM failures now show "technical problem" + reception + emergency route instead of "not able to confirm" (which read like "we don't offer that"). Found when the utility model's daily quota ran out during testing. |
 | — | — | **Chat page** at `/` (`src/bot/api/static/index.html`): streamed verified answers, inline citations shown as numbered superscripts + sources list, follow-ups via `thread_id`, 👍/👎 to `/v1/feedback`, cold-start notice. Clinic facts injected from `configs/generation.yaml`. |
 | — | — | **Staff chat.** `/staff` page and live staff chats: several replies until End chat; red flags still answered by the bot; request for a person wins over symptoms (classifier `emergency` flag); "nobody online" at once; timeouts (3 min no reply, 5 min patient gone, staff offline after 10 s); presence online/away/left by most active tab; reopened/duplicated tabs load history and sync instantly. Replaces the one-reply `interrupt` flow. 99 tests. |
 
@@ -461,9 +462,11 @@ metric trusting the model's label instead of the reply text.
 - Retrieval-score abstention is switched off (`min_top_score: 0.0`) pending the plan's threshold
   experiment.
 - Free-tier quotas (Groq 200k tokens/day per model per key, rolling 24 h): a full uncached eval
-  of 50 cases (~230k generator tokens) needs more than one key-day; CI relies on its cache. When
-  the quota runs out, the bot shows its safe fallback message ("not able to confirm…"), which
-  can read as if the clinic doesn't offer the service.
+  of 50 cases (~230k generator tokens) needs more than one key-day; CI relies on its cache.
+  In-memory rate limits (10/min and 60/day per chat, 100/day per IP) slow quota use but can be
+  bypassed by a script that fakes `X-Forwarded-For` and opens new chats; counters reset on
+  restart. When an LLM call fails, patients get a "technical problem" message with reception and
+  the emergency route.
 - Free Render hosting sleeps when idle (first request 30–50 s). No demo video yet.
 
 ---
