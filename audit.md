@@ -456,9 +456,11 @@ metric trusting the model's label instead of the reply text.
   precise reliability figure; it can still miss subtle condition errors.
 - Contact details typed in chat are redacted from logs and saved only with consent, but remain
   in the LangGraph checkpoint transcript.
-- Follow-up rewriting is not yet measured (evals use hand-written standalone questions).
-- Lead and safety eval sets (consent-violation metric) don't exist yet, so the gate reports
-  consent as "not measured".
+- Follow-up rewriting: the gate uses hand-written standalone questions. Spot check (results
+  §4e): the real rewriter resolved 2 of 4 follow-ups; the 4 cases are too easy to show its effect.
+- No lead eval set in the gate (owner's decision: unit tests cover the flow), so the gate reports
+  consent as "not measured". Spot check (results §4e): 0 of 9 hesitant replies were read as
+  consent; 4 of 4 clear agreements were.
 - Retrieval-score abstention is switched off (`min_top_score: 0.0`) pending the plan's threshold
   experiment.
 - Free-tier quotas (Groq 200k tokens/day per model per key, rolling 24 h): a full uncached eval

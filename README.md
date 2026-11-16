@@ -136,8 +136,10 @@ On Windows without `make`, run the command from the matching target in the [`Mak
   The case is held back; the fix (one prompt line) waits for a full eval run.
 - **Multi-rule totals** (e.g. a package refund after partial treatment) are not computed; the bot
   gives the published amounts and refers to reception (q-016).
-- **Not yet measured:** follow-up rewriting (evals use hand-written standalone questions); there
-  is no lead/consent eval set, so the gate reports consent as "not measured".
+- **Outside the gate:** follow-up rewriting (the gate uses hand-written standalone questions) and
+  consent reading (no lead eval set, so the gate reports consent as "not measured"). Spot checks
+  with the real model ([results §4e](docs/results.md)): the rewriter resolved 2 of 4 follow-ups;
+  0 of 9 hesitant replies ("maybe later", "why do you need my number?") were read as consent.
 - **Judge validated on 24 replies**: enough to catch a lenient judge, not a precise reliability
   figure.
 - **Free-tier quotas** (Groq: 200k tokens/day per model): a full uncached eval needs about two

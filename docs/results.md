@@ -353,3 +353,37 @@ Same CI run, other flips vs the local baseline: q-003 pass → fail and q-041 fa
 two differ between `main`'s CI cache and the local cache, §4c), q-053 fail → pass.
 
 **Gate threshold:** unchanged at 3 points — on 53 cases one flip is 1.89 points, two are 3.77.
+
+### 4e. Spot checks: follow-up rewriter and consent reading (2026-11-17)
+
+`uv run python -m evals.spot_checks rewrite|consent` · real utility model (`gpt-oss-20b`) ·
+retrieval with production settings (hybrid, heading chunks). Measurements only: the gate still
+uses the hand-written standalone questions.
+
+**Follow-up rewriter** — the 4 follow-up cases, recall@5 / RR:
+
+| case | raw message | real rewriter | hand-written |
+|---|---|---|---|
+| q-019 | 1.00 / 1.00 | 1.00 / 1.00 — resolved ("…take-home teeth whitening option?") | 1.00 / 1.00 |
+| q-020 | 1.00 / 1.00 | 1.00 / 1.00 — resolved ("…for a kids' dental consultation?") | 1.00 / 1.00 |
+| q-044 | 1.00 / 1.00 | 1.00 / 1.00 — unchanged ("When do the stitches come out?") | 1.00 / 1.00 |
+| q-045 (holdout) | 1.00 / 0.33 | 1.00 / 0.33 — unchanged, "them" not resolved | 1.00 / 1.00 |
+
+- The rewriter resolved the reference in 2 of 4 cases and returned the message unchanged in the
+  other 2. On q-045 that costs ranking: the right document drops from rank 1 to rank 3.
+- The cases are too easy to show the rewriter's value: the patient's raw message alone finds
+  the right document in the top 5 every time. Harder follow-ups (where the raw message retrieves
+  the wrong document) are needed for a real measurement.
+- The golden history holds only the patient's earlier message; in production the rewriter also
+  sees the bot's reply. q-045 is holdout: reported, not tuned on.
+
+**Consent reading** — replies to the consent text (after "I'd like teeth whitening"):
+
+| reply | extracted |
+|---|---|
+| maybe later · why do you need my number? · not now, I'm just looking · I'll think about it · how much does it cost first? · can I just book online instead? · is my data safe with you? | unclear |
+| no thanks · my name is Test Patient but I don't want a call | no |
+| yes please · sure, Test Patient, 90000 00000 · ok, call me on 9000000000 · Test Patient, +91 90000 00000 | yes |
+
+**Hesitant replies read as consent: 0 / 9**; clear agreements read as yes: 4 / 4. "unclear" makes
+the bot ask again and keeps no details, so none of these would save a lead.
