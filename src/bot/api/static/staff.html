@@ -40,10 +40,16 @@
        overflow-wrap: anywhere; }
   .m b { font-size: 12px; color: var(--muted); display: block; }
   .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
-  .contact { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
-  dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 8px 0 0; }
-  dt { color: var(--muted); font-size: 13px; }
-  dd { margin: 0; overflow-wrap: anywhere; }
+  body.wide main { max-width: 1200px; }
+  .tablewrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line);
+               border-radius: 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line);
+           vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; white-space: nowrap;
+       background: var(--soft); }
+  td { overflow-wrap: anywhere; min-width: 90px; }
+  tbody tr:last-child td { border-bottom: 0; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -78,7 +84,13 @@
       consent text first. Delete a lead when the patient asks or it is no longer needed. Open
       chats keep refreshing while you are here.</p>
     <p class="muted" id="leadsSummary"></p>
-    <div id="leadsList"></div>
+    <div class="tablewrap" id="leadsTable" hidden>
+      <table>
+        <thead><tr><th>Date</th><th>Name</th><th>Phone</th><th>Email</th><th>Need</th>
+          <th>Budget</th><th>Timeline</th><th>Consent given</th><th></th></tr></thead>
+        <tbody id="leadsBody"></tbody>
+      </table>
+    </div>
   </section>
 </main>
 <script>
@@ -234,21 +246,27 @@
   // ------------------------------------------------------------------ leads view
   const when = (iso) => (iso ? new Date(iso).toLocaleString() : "");
 
-  function leadCard(l) {
-    const c = el("div", "card");
-    const head = el("header");
-    head.append(el("strong", null, l.name), el("span", "muted", when(l.created_at)));
-    c.append(head, el("div", "contact", l.contact));
-    const dl = el("dl");
-    [["Need", l.need], ["Budget", l.budget], ["Timeline", l.timeline],
-     ["Consent given", when(l.consent_at)], ["Chat", l.thread_id]].forEach(([k, v]) => {
-      if (v) dl.append(el("dt", null, k), el("dd", null, v));
-    });
-    const row = el("div", "row");
+  // Patients give phone and/or email in one "contact" field; show them in separate columns.
+  const EMAIL = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
+  const PHONE = /\+?\d[\d\s-]{6,}\d/g;
+  function splitContact(contact) {
+    const emails = contact.match(EMAIL) || [];
+    const phones = contact.replace(EMAIL, " ").match(PHONE) || [];
+    // Neither pattern found: show what the patient wrote, so nothing is lost.
+    if (!emails.length && !phones.length) return { phone: contact, email: "" };
+    return { phone: phones.map((p) => p.trim()).join(", "), email: emails.join(", ") };
+  }
+
+  function leadRow(l) {
+    const tr = el("tr");
+    const { phone, email } = splitContact(l.contact || "");
+    [when(l.created_at), l.name, phone, email, l.need, l.budget, l.timeline, when(l.consent_at)]
+      .forEach((v) => tr.appendChild(el("td", null, v || "—")));
+    tr.title = `Chat ${l.thread_id}`;
+    const td = el("td");
     const del = el("button", "secondary", "Delete");
-    const note = el("span", "muted");
-    row.append(del, note);
-    c.append(dl, row);
+    td.appendChild(del);
+    tr.appendChild(td);
     del.onclick = async () => {
       if (!confirm(`Delete the lead for ${l.name}? This can't be undone.`)) return;
       del.disabled = true;
@@ -256,11 +274,11 @@
         const r = await fetch(`/v1/leads/${encodeURIComponent(l.id)}`,
                               { method: "DELETE", headers: headers() });
         if (r.ok || r.status === 404) { loadLeads(); return; }
-        note.textContent = `Failed (HTTP ${r.status}).`;
-      } catch (e) { note.textContent = "Network error, try again."; }
+        showError(`Delete failed (HTTP ${r.status}).`);
+      } catch (e) { showError("Network error, try again."); }
       del.disabled = false;
     };
-    return c;
+    return tr;
   }
 
   async function loadLeads() {
@@ -272,9 +290,10 @@
     if (!r.ok) { showError(`Server error (HTTP ${r.status}).`); return; }
     showError("");
     const items = await r.json();
-    const list = $("leadsList");
-    list.textContent = "";
-    items.forEach((l) => list.appendChild(leadCard(l)));
+    const body = $("leadsBody");
+    body.textContent = "";
+    items.forEach((l) => body.appendChild(leadRow(l)));
+    $("leadsTable").hidden = !items.length;
     $("leadsSummary").textContent = items.length
       ? `${items.length} lead(s), newest first.` : "No leads yet.";
   }
@@ -284,6 +303,7 @@
     $("queue").hidden = v !== "chats";
     $("leadsView").hidden = v !== "leads";
     $("leadsBtn").hidden = v !== "chats";
+    document.body.classList.toggle("wide", v === "leads");
     if (v === "leads") loadLeads();
   }
 
@@ -293,7 +313,8 @@
     try { sessionStorage.removeItem("bsb-admin"); } catch (e) {}
     clearInterval(timer);
     $("list").textContent = "";
-    $("leadsList").textContent = "";
+    $("leadsBody").textContent = "";
+    document.body.classList.remove("wide");
     view = "chats";
     $("queue").hidden = true;
     $("leadsView").hidden = true;
