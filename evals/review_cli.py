@@ -21,6 +21,7 @@ import argparse
 import datetime as dt
 import json
 import re
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -54,6 +55,23 @@ def next_version(cases: list[GoldenCase]) -> str:
     return f"{major}.{minor + 1}.0"
 
 
+def committed_cases(path: Path) -> list[GoldenCase] | None:
+    """The golden set as merged on origin/main, so every case added on a branch (over several
+    sessions and commits) shares one dataset_version. None when git or the file is unavailable."""
+    try:
+        rel = path.resolve().relative_to(ROOT).as_posix()
+        out = subprocess.run(
+            ["git", "show", f"origin/main:{rel}"],
+            cwd=ROOT,
+            capture_output=True,
+            check=True,
+            encoding="utf-8",
+        ).stdout
+    except (ValueError, OSError, subprocess.CalledProcessError):
+        return None
+    return [GoldenCase.model_validate(json.loads(ln)) for ln in out.splitlines() if ln.strip()]
+
+
 def doc_ids(retrieved_ids: list[str]) -> list[str]:
     """Document-level ids from chunk ids ('DENT-019#root-canal' -> 'DENT-019'), in order."""
     out: list[str] = []
@@ -65,10 +83,9 @@ def doc_ids(retrieved_ids: list[str]) -> list[str]:
 
 
 def append_case(case: GoldenCase, path: Path = GOLDEN_PATH) -> None:
-    text = path.read_text(encoding="utf-8")
-    line = json.dumps(case.model_dump(exclude_defaults=True), ensure_ascii=False)
-    sep = "" if not text or text.endswith("\n") else "\n"
-    path.write_text(text + sep + line + "\n", encoding="utf-8")
+    lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    lines.append(json.dumps(case.model_dump(exclude_defaults=True), ensure_ascii=False))
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
 def add_changelog_entry(version: str, bullet: str, path: Path = CHANGELOG_PATH) -> None:
@@ -84,36 +101,36 @@ def add_changelog_entry(version: str, bullet: str, path: Path = CHANGELOG_PATH) 
         while end < len(lines) and lines[end].strip() and not lines[end].startswith("## "):
             end += 1
         lines.insert(end, bullet)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
 # --------------------------------------------------------------------------- database
 
 
 class CandidateStore:
+    """One short connection per call: Neon drops idle connections while the reviewer types."""
+
     def __init__(self, database_url: str):
-        self.conn = psycopg.connect(database_url)
+        self.url = database_url
 
     def load(self, include_deferred: bool) -> list[dict]:
         statuses = ["pending", "deferred"] if include_deferred else ["pending"]
-        cur = self.conn.execute(
-            """SELECT id, source, question, bot_answer, retrieved_ids, status, created_at
-               FROM candidates WHERE status = ANY(%s) ORDER BY created_at, id""",
-            (statuses,),
-        )
-        cols = [d.name for d in cur.description]
-        return [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
+        with psycopg.connect(self.url) as conn:
+            cur = conn.execute(
+                """SELECT id, source, question, bot_answer, retrieved_ids, status, created_at
+                   FROM candidates WHERE status = ANY(%s) ORDER BY created_at, id""",
+                (statuses,),
+            )
+            cols = [d.name for d in cur.description]
+            return [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
 
     def mark(self, cid: int, status: str, reviewer_answer: str | None = None) -> None:
-        self.conn.execute(
-            """UPDATE candidates SET status = %s, reviewer_answer = %s, reviewed_at = now()
-               WHERE id = %s""",
-            (status, reviewer_answer, cid),
-        )
-        self.conn.commit()
-
-    def close(self) -> None:
-        self.conn.close()
+        with psycopg.connect(self.url) as conn:
+            conn.execute(
+                """UPDATE candidates SET status = %s, reviewer_answer = %s, reviewed_at = now()
+                   WHERE id = %s""",
+                (status, reviewer_answer, cid),
+            )
 
 
 # --------------------------------------------------------------------------- interactive loop
@@ -153,7 +170,15 @@ def build_case(cand: dict, case_id: str, version: str, input_fn) -> GoldenCase |
         if all(re.fullmatch(r"DENT-\d{3}", d) for d in docs):
             break
         print("  doc ids look like DENT-019")
-    must = _split_list(_ask(input_fn, "Must include, ';'-separated (optional)"), ";")
+    # abstain/refuse cases must list both (tests/test_evals.py); optional otherwise.
+    required = behavior in ("abstain", "refuse")
+    note = "required" if required else "optional"
+    while True:
+        must = _split_list(_ask(input_fn, f"Must include, ';'-separated ({note})"), ";")
+        must_not = _split_list(_ask(input_fn, f"Must NOT include, ';'-separated ({note})"), ";")
+        if not required or (must and must_not):
+            break
+        print(f"  a '{behavior}' case needs both lists")
     split = _choose(input_fn, "Split", ("dev", "holdout"), "dev")
     return GoldenCase(
         id=case_id,
@@ -166,6 +191,7 @@ def build_case(cand: dict, case_id: str, version: str, input_fn) -> GoldenCase |
         must_abstain=behavior == "abstain",
         golden_answer=answer,
         must_include=must,
+        must_not_include=must_not,
         notes=f"From review candidate #{cand['id']} ({cand['source']}).",
     )
 
@@ -194,7 +220,7 @@ def review(
         print("No candidates to review.")
         return counts
     cases = load_golden(golden_path)
-    version = version or next_version(cases)
+    version = version or next_version(committed_cases(golden_path) or cases)
     print(f"{len(cands)} candidate(s). Accepted cases get dataset_version {version}.")
     for n, cand in enumerate(cands, 1):
         show(cand, n, len(cands))
@@ -248,13 +274,10 @@ def main() -> None:
     url = _Neon().neon_database_url if args.neon else get_settings().database_url
     if not url:
         raise SystemExit("NEON_DATABASE_URL is not set in .env")
-    store = CandidateStore(url)
     try:
-        review(store, args.version, args.deferred)
+        review(CandidateStore(url), args.version, args.deferred)
     except (KeyboardInterrupt, EOFError):
         print("\nStopped; everything reviewed so far is saved.")
-    finally:
-        store.close()
 
 
 if __name__ == "__main__":
