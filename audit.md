@@ -457,7 +457,8 @@ metric trusting the model's label instead of the reply text.
 - Contact details typed in chat are redacted from logs and saved only with consent, but remain
   in the LangGraph checkpoint transcript.
 - Follow-up rewriting: the gate uses hand-written standalone questions. Spot check (results
-  §4e): the real rewriter resolved 2 of 4 follow-ups; the 4 cases are too easy to show its effect.
+  §4e): on 4 follow-ups that drop the topic the rewriter found the right document 4/4 (raw
+  message 0/4); it left 2 of the 4 easier golden follow-ups unchanged.
 - No lead eval set in the gate (owner's decision: unit tests cover the flow), so the gate reports
   consent as "not measured". Spot check (results §4e): 0 of 9 hesitant replies were read as
   consent; 4 of 4 clear agreements were.
@@ -521,12 +522,18 @@ uv run python -m bot.llm.check_models             # are the configured models li
 ## 12. What's next (in order)
 
 Done on day 4: `make review` (PR #6), golden 0.7.0 with 3 real cases (PRs #7–#8), leads view on
-the staff page with phone required (PR #9), README refresh.
+the staff page with phone required (PR #9), README refresh (PR #10). Day 5: rate limits and a
+clear error message (PR #11), spot checks of the rewriter and consent reading (PR #12 + this).
 
+The project is complete against the plan except for two owner tasks:
 1. **Demo video** (3 minutes; shot list in `docs/demo-script.md`), then add the link to the README.
 2. **Two more real cases** via `make review --neon` to reach the plan's "≥ 5 real cases".
-3. **"Call 112" fix**: one prompt line + q-054 back (as abstain) + a full uncached eval run
-   (~2 days of free quota) + new baseline.
-4. Later, optional: a clearer message when the LLM provider fails; judge labels 24 → 30;
-   lead/safety eval sets; follow-up-rewrite measurement; a second provider only as a recorded
-   experiment with its own baseline.
+
+Optional:
+- **"Call 112" fix**: one prompt line + q-054 back (as abstain) + a full uncached eval run
+  (~2 days of free quota) + new baseline.
+- After a lead is saved, another booking message shows the consent text again (fix: reply that
+  the details are already with the team).
+- Harder follow-up golden cases (the 4 in results §4e), owner-written answers.
+- Judge labels 24 → 30; an output check blocking non-clinic phone numbers/emails; a second
+  provider only as a recorded experiment with its own baseline.

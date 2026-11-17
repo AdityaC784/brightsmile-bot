@@ -20,6 +20,10 @@ captures leads **only after consent**, and hands chats to staff. Every pull requ
 Every number comes from [`evals/baseline.md`](evals/baseline.md) and [`docs/results.md`](docs/results.md).
 Full write-up: [`audit.md`](audit.md) · original plan: [`docs/PLAN.md`](docs/PLAN.md).
 
+**Status:** complete and live — retrieval, verified answers, lead capture, staff handoff, rate
+limits, the CI eval gate and the feedback loop are built, measured and deployed. Open: the demo
+video, and 2 more golden cases from real conversations (3 of the planned 5 so far).
+
 ## How it works
 
 ```mermaid
@@ -138,8 +142,10 @@ On Windows without `make`, run the command from the matching target in the [`Mak
   gives the published amounts and refers to reception (q-016).
 - **Outside the gate:** follow-up rewriting (the gate uses hand-written standalone questions) and
   consent reading (no lead eval set, so the gate reports consent as "not measured"). Spot checks
-  with the real model ([results §4e](docs/results.md)): the rewriter resolved 2 of 4 follow-ups;
-  0 of 9 hesitant replies ("maybe later", "why do you need my number?") were read as consent.
+  with the real model ([results §4e](docs/results.md)): on follow-ups that drop the topic ("And
+  for kids?"), the rewriter put the right document first in 4 of 4, the raw message in 0 of 4,
+  though it left 2 of the 4 easier golden follow-ups unchanged; 0 of 9 hesitant replies ("maybe
+  later", "why do you need my number?") were read as consent.
 - **Judge validated on 24 replies**: enough to catch a lenient judge, not a precise reliability
   figure.
 - **Free-tier quotas** (Groq: 200k tokens/day per model): a full uncached eval needs about two

@@ -43,6 +43,26 @@ def rewrite_check() -> None:
                 f"| {reciprocal_rank(docs, c.gold_doc_ids):.2f} | {q} |"
             )
 
+    # Harder follow-ups (not golden cases): the message alone has lost its topic.
+    print("\n| conversation | query | top document | right? |\n|---|---|---|---|")
+    for first, follow, want in HARD_FOLLOWUPS:
+        prompt = f"Recent conversation:\nuser: {first}\n\nLatest patient message:\n{follow}"
+        time.sleep(3)
+        parsed, _ = llm.chat_json(load_prompt("rewrite"), [Message("user", prompt)], _Standalone)
+        for label, q in (("raw", follow), ("rewriter", parsed.standalone.strip() or follow)):
+            top = retriever.search(q, top_k=1)[0].source_doc_id
+            print(
+                f"| {first} -> {follow} | {label}: {q} | {top} | {'yes' if top == want else 'no'} |"
+            )
+
+
+HARD_FOLLOWUPS = [  # (first message, follow-up, document that answers it)
+    ("How much does a root canal cost?", "And for kids?", "DENT-014"),
+    ("Do you offer teeth whitening?", "How long does it last?", "DENT-018"),
+    ("What are the cancellation rules?", "What if I miss it completely?", "DENT-007"),
+    ("Tell me about clear aligners.", "Is it painful?", "DENT-017"),
+]
+
 
 HESITANT = [
     "maybe later",
