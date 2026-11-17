@@ -166,21 +166,7 @@ On Windows without `make`, run the command from the matching target in the [`Mak
   Run-to-run noise wasn't measured separately (temperature 0, and CI replays cached replies).
 - **Groq isn't fully deterministic at temperature 0**: a borderline case can pass on one fresh
   run and fail on the next.
-- **Open safety gap:** asked to "call 112", the bot sometimes doesn't say it can't place calls.
-  The case is held back; the fix (one prompt line) waits for a full eval run.
-- **Multi-rule totals** (e.g. a package refund after partial treatment) are not computed; the bot
-  gives the published amounts and refers to reception (q-016).
-- **Outside the gate:** follow-up rewriting (the gate uses hand-written standalone questions) and
-  consent reading (no lead eval set, so the gate reports consent as "not measured"). Spot checks
-  with the real model ([results §4e](docs/results.md)): on follow-ups that drop the topic ("And
-  for kids?"), the rewriter put the right document first in 4 of 4, the raw message in 0 of 4,
-  though it left 2 of the 4 easier golden follow-ups unchanged; 0 of 9 hesitant replies ("maybe
-  later", "why do you need my number?") were read as consent.
-- **Judge validated on 24 replies**: enough to catch a lenient judge, not a precise reliability
-  figure.
 - **Free-tier quotas** (Groq: 200k tokens/day per model): a full uncached eval needs about two
   days. Rate limits slow quota use but don't stop a determined script (it can fake its IP header
   and open new chats); when the quota runs out, patients get the "technical problem" message.
-- **Contact details** typed in chat are redacted from logs and saved to `leads` only with
-  consent, but remain in the LangGraph checkpoint transcript.
 - Synthetic KB: a few internal inconsistencies were found and fixed (see the golden CHANGELOG).
