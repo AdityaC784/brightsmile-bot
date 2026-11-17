@@ -70,8 +70,38 @@ unit tests and was blocked by the gate:
 
 ![Eval gate blocking a bad PR](docs/img/bad-pr-gate-comment.png)
 
-The judge (GPT-OSS 120B, checklist grading) was validated against the owner's hand labels after
-the first, lenient judge missed 3 of 4 failures (Cohen's kappa 0.36 → 0.59).
+**The judge** grades eval answers only (never patient chats). An LLM (GPT-OSS 120B,
+temperature 0) compares each answer with the owner's hand-written golden answer and fills in a
+checklist: are the 1–4 key facts present, are the must-include / must-not-include items met, any
+contradiction, the expected behaviour (answer / abstain / refuse / clarify / handoff), and is
+every statement supported by the sources. "Correct" is computed from that checklist by code, not
+taken from the model's overall impression. It was validated against 24 replies the owner
+labelled by hand: the first version was too lenient (it missed 3 of 4 real failures, Cohen's
+kappa 0.36), so it was rebuilt as the checklist on a bigger model (kappa 0.59, moderate
+agreement). Limits: 24 labels is a small sample (the plan targets 30), it can miss subtle
+condition errors, and it is sometimes strict about omitted secondary details.
+
+## Why custom guardrails and eval (no guardrail library, no RAGAS)
+
+- **The rules that matter are clinic-specific**: "a ₹ price must appear in the cited document",
+  "save personal data only after the consent text and a yes", "emergencies always get the
+  after-hours route". A guardrail library (NeMo Guardrails, Guardrails AI, Llama Guard) would
+  still need them written as custom rules, and adds LLM calls to every message, which halves
+  capacity on the free tier. Its built-in categories (toxicity, violence) rarely apply here.
+- **The judge is validated; an off-the-shelf one wouldn't be.** RAGAS scores come from an LLM
+  judge too. Ours was checked against hand labels and rebuilt when it proved lenient (kappa
+  0.36 → 0.59). Retrieval is scored against hand-labelled gold documents, which is more exact
+  than LLM-judged context metrics.
+- **The key metrics are custom anyway:** abstention, safety, behaviour and consent have no RAGAS
+  equivalent.
+- **Cross-checked once against RAGAS** (12 cases, same judge model; [results §4f](docs/results.md)):
+  faithfulness agreed on 8 of 12; RAGAS scored 4 answers lower where every fact checked by hand
+  is in the cited documents (it judges finer statements, advice lines included). Its context
+  recall didn't separate our passes from failures, which confirms the failures are omissions
+  in the answer, not retrieval misses.
+- Guardrails here are prompt rules, an LLM classifier with LangGraph routing, a code-level
+  citation/fact verifier, consent logic, regex redaction, Pydantic input validation and rate
+  limits, each covered by unit tests and the eval gate.
 
 ## Stack
 

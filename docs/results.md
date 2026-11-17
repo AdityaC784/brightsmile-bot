@@ -400,3 +400,41 @@ follow-up cases than the current 4 (the owner would write the answers).
 
 **Hesitant replies read as consent: 0 / 9**; clear agreements read as yes: 4 / 4. "unclear" makes
 the bot ask again and keeps no details, so none of these would save a lead.
+
+### 4f. Cross-check against RAGAS (2026-11-17)
+
+`uv run --group ragas python -m evals.ragas_check` · RAGAS 0.4.4 on the same model as our judge
+(`gpt-oss-120b`, same settings) · 12 dev answer cases from the baseline: all 6 our judge fails +
+the first 6 it passes · RAGAS gets exactly the sources the generator saw (search + references).
+
+| case | our judge | RAGAS faithfulness | our recall@5 | RAGAS context recall |
+|---|---|---|---|---|
+| q-016 | fail | 0.20 | 1.00 | 0.40 |
+| q-035 | fail | 1.00 | 1.00 | 1.00 |
+| q-037 | fail | 1.00 | 1.00 | 1.00 |
+| q-038 | fail | 1.00 | 1.00 | 1.00 |
+| q-043 | fail | 0.80 | 1.00 | 1.00 |
+| q-053 | fail | 0.75 | 0.67 | 1.00 |
+| q-001 | pass | 1.00 | 1.00 | 1.00 |
+| q-002 | pass | 1.00 | 1.00 | 0.50 |
+| q-003 | pass | 1.00 | 1.00 | 1.00 |
+| q-004 | pass | 1.00 | 1.00 | 1.00 |
+| q-006 | pass | 1.00 | 1.00 | 1.00 |
+| q-007 | pass | 0.75 | 1.00 | 0.67 |
+
+Means: our passes — RAGAS faithfulness 0.96, context recall 0.86; our failures — 0.79 / 0.90.
+
+**Reading it**
+- **Context recall doesn't separate our passes from our failures** (0.86 vs 0.90): the right
+  information was retrieved in both groups. That matches our judge's failure reasons, which are
+  all omissions in the answer ("left out the 5–14 day window"), i.e. generation, not retrieval.
+- **Faithfulness: 8 of 12 agree** (1.00 = faithful). RAGAS scored 4 answers lower (q-016, q-043,
+  q-053, q-007) where our judge and verifier found every claim supported (verifier 3/3 on each).
+  The disputed facts checked by hand are in the KB (refund "within 5 business days" in DENT-007,
+  ₹4,750 crown share in DENT-015/024, the bereavement waiver in DENT-007). RAGAS splits answers
+  into finer statements and judges each strictly, including advice lines ("please contact
+  reception", "please wait for your parent"); its per-statement verdicts were not extracted,
+  so which statements it rejected is not known.
+- q-016 (multi-rule refund total, the known limitation) is the one case both methods flag as
+  weak: our judge for the missing total, RAGAS with 0.20 faithfulness / 0.40 context recall.
+- Small sample (12 cases); a cross-check, not a replacement for the validated judge.
