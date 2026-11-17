@@ -377,6 +377,19 @@ uses the hand-written standalone questions.
 - The golden history holds only the patient's earlier message; in production the rewriter also
   sees the bot's reply. q-045 is holdout: reported, not tuned on.
 
+**Harder follow-ups** (not golden cases; the message alone has lost its topic) — top document:
+
+| conversation | raw message | real rewriter |
+|---|---|---|
+| root canal cost → "And for kids?" | DENT-029 paediatric rules ✗ | "…root canal cost for kids?" → DENT-014 ✓ |
+| teeth whitening → "How long does it last?" | DENT-026 records retention ✗ | "How long does teeth whitening last?" → DENT-018 ✓ |
+| cancellation rules → "What if I miss it completely?" | DENT-009 late arrival ✗ | "…if I miss my appointment completely?" → DENT-007 ✓ |
+| clear aligners → "Is it painful?" | DENT-033 fillings ✗ | "Is clear aligner treatment painful?" → DENT-017 ✓ |
+
+Right document first: **raw 0 / 4, rewriter 4 / 4**. On follow-ups that drop the topic the
+rewriter decides whether the right document is found at all. These would make better golden
+follow-up cases than the current 4 (the owner would write the answers).
+
 **Consent reading** — replies to the consent text (after "I'd like teeth whitening"):
 
 | reply | extracted |
