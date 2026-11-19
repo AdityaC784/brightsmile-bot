@@ -16,7 +16,7 @@ built that way, and what an interviewer is likely to ask. Every claim points to 
 | 7 | [Evaluation](#lesson-7--evaluation) | `evals/` |
 | 8 | [CI/CD & deployment](#lesson-8--cicd--deployment) | `.github/workflows/`, `Dockerfile` |
 | 9 | [Feedback loop & experiments](#lesson-9--feedback-loop--experiments) | `evals/review_cli.py`, `spot_checks.py`, `ragas_check.py` |
-| 10 | Tests & wrap-up | `tests/` |
+| 10 | [Tests & wrap-up](#lesson-10--tests--wrap-up) | `tests/` |
 
 ---
 
@@ -2168,4 +2168,168 @@ uv run python -m evals.review_cli            # local queue (press q to quit); --
 uv run python -m evals.spot_checks consent   # ~2 min (pauses for the free-tier rate limit)
 uv run --group ragas python -m evals.ragas_check   # ~20 min, 12 cases
 uv run pytest tests/test_review_cli.py -q
+```
+
+---
+
+## Lesson 10 — Tests & wrap-up
+
+### Purpose
+The eval gate (Lessons 7–8) checks **what the bot says**. The 112 unit and integration tests
+check **how the code behaves**: routing, consent, verification, fallbacks, logging, staff chats,
+rate limits, the gate's own rules. They run in ~19 s with **no network and no API keys**,
+because every LLM is replaced by a scripted fake. This lesson shows how that works, what each
+file guards, follows one message through the whole system, and ends with an interview cheat
+sheet.
+
+### How the tests avoid real LLMs: dependency injection
+Every class that calls an LLM takes its dependencies as optional constructor arguments and only
+builds the real ones when none are given:
+
+| Real code | Injection point | Test fake |
+|---|---|---|
+| `Answerer(retriever, generator, verifier)` (`rag/answer.py:94`) | all three | `FakeRetriever`, `ScriptedLLM` (`tests/test_rag.py:21`, `:31`) |
+| `Nodes(utility, answerer)` (`graph/nodes.py:72`) | utility LLM, answerer | `ScriptedUtility`, `FakeAnswerer` (`tests/test_graph.py:14`, `:37`) |
+| `build_graph(nodes, checkpointer)` (`graph/builder.py:31`) | checkpointer | LangGraph's `InMemorySaver` |
+| `create_app(graph)` (`api/main.py:73`) | the whole graph | a graph built from the fakes above |
+| `LLM` provider (`llm/client.py`) | monkeypatched `_provider` | `FakeProvider` (`tests/test_llm_and_retrieval.py:17`) |
+
+A scripted fake returns prepared JSON replies **in order** and records what it was sent:
+```python
+class ScriptedLLM:
+    def __init__(self, *replies: dict):
+        self.replies = list(replies)
+        self.calls = []
+
+    def chat_json(self, system, messages, schema, **_):
+        self.calls.append((system, messages))
+        reply = self.replies.pop(0)
+        return schema.model_validate(reply), ChatResponse(json.dumps(reply), "fake", "fake")
+```
+So a test can say: "the generator first invents ₹9,500, the verifier rejects it, the repair
+cites correctly; assert the patient sees the repaired reply and `repaired=True`". This works
+with no network, it's deterministic, and it tests the real control flow around the model.
+
+Tests that need Postgres (checkpointer, leads, turn logging, the API) **skip themselves** when
+no database is reachable (`_db_ok()`, `tests/test_graph.py:111`); in CI a Postgres service
+container runs, so they all run there.
+
+### What each test file guards
+| File | Tests | Guards |
+|---|---|---|
+| `test_smoke.py` | 3 | Configs load; embedding size matches the SQL schema and pgvector's limit; manifest = files on disk |
+| `test_llm_and_retrieval.py` | 11 | JSON repair, cache hit = no provider call, order-independent cache key, retry policy, daily quota not retried, lexical query keeps IDs, reference expansion |
+| `test_loaders_chunking.py` | 11 (12 runs) | Wrapped IDs re-joined, tables as self-contained rows, CSV row chunks, every KB doc loads, no broken service IDs, chunk ids unique, size limits, heading paths |
+| `test_rag.py` | 19 | Invented price/code caught, unknown source caught, citations mapped, fallback on failure, **emergency never downgraded**, refusals not verified, repair loop, computed totals rejected, **prompts have no clinic facts or test wording** |
+| `test_graph.py` | 22 (24 runs) | Rewrite only with history, thread isolation, Postgres persistence, **consent gate** (details before consent not kept, decline wipes, phone required), staff hold the chat, **red flag answered while staff hold it**, presence, timeouts, idempotent lead save |
+| `test_api.py` | 19 | Redaction, SSE event order, **provider failure → fallback, not 500**, input validation, admin key required / disabled by default, staff reply/end/timeout end to end, 👎 → review candidate, history on reload |
+| `test_ratelimit.py` | 6 | Each limit and its window, blocked messages not counted, `X-Forwarded-For`, over-limit and LLM-failure messages carry the emergency route with no LLM call |
+| `test_evals.py` | 7 | recall@k / RR maths, golden set valid and balanced, abstain/refuse cases list forbidden content, kappa maths, judge `correct` computed from the checklist |
+| `test_compare.py` | 5 | Gate hard and soft fails, one-flip tolerance, flipped cases in the comment, **a missing metric is never treated as passing** |
+| `test_review_cli.py` | 5 | Review accept/reject/defer with a fake store, version taken from `main`, CHANGELOG entry |
+
+The three **safety invariants** from `CLAUDE.md` each have tests: verified-before-shown
+(`test_invented_price_triggers_fallback`, `test_chat_streams_status_answer_chunks_and_done`),
+emergencies never fall back to generic text and are answered while staff hold the chat
+(`test_failed_emergency_reply_keeps_emergency_routing`, `test_repair_never_downgrades_an_emergency`,
+`test_red_flag_while_staff_hold_the_chat_is_answered_at_once`), and leads saved only after
+consent (`test_details_volunteered_before_consent_text_are_not_kept`,
+`test_save_lead_refuses_without_consent`).
+
+### One message, end to end
+*"How much is a molar root canal?"* typed on the live chat page:
+
+| # | Step | Code | Lesson |
+|---|---|---|---|
+| 1 | Page POSTs `{message, thread_id}`, reads the SSE stream with `fetch` | `static/index.html:329` | 6 |
+| 2 | Status event "thinking" sent at once | `api/main.py:181` | 6 |
+| 3 | Rate limit per chat and per IP; over → fixed message, no LLM | `api/main.py:110`, `ratelimit.py:28` | 6 |
+| 4 | Staff timeouts checked lazily | `api/main.py:124`, `staff.py:130` | 6 |
+| 5 | Graph loads this thread's state from Postgres | `api/main.py:136`, `builder.py:68` | 5 |
+| 6 | `classify` (utility model): intent `support`, emergency false | `nodes.py:91` | 5 |
+| 7 | `route` → `rewrite`; first message, so no LLM call | `nodes.py:102`, `:132` | 5 |
+| 8 | `support` → `Answerer.answer()` | `nodes.py:145`, `answer.py:171` | 4 |
+| 9 | Question embedded (Gemini, cached); full-text + vector top 50 each; weighted RRF; top 6 | `hybrid.py:96` | 1, 3 |
+| 10 | Reference expansion adds rows named by code | `hybrid.py:136` | 3 |
+| 11 | Sources numbered S1–S8; generator (Qwen) returns JSON with `[S#]` citations | `answer.py:72`, `:188` | 1, 4 |
+| 12 | Code check: ₹6,800 and SRV-005A must be in the cited source | `verify.py:77` | 4 |
+| 13 | LLM check (gpt-oss-20b): each cited claim supported, conditions kept | `verify.py:140` | 4 |
+| 14 | Pass → `[S2]` becomes `[DENT-014]`; fail → one repair → fallback | `answer.py:133`, `:211-244` | 4 |
+| 15 | State checkpointed; the turn logged with contacts masked; review candidate if abstained or failed | `api/main.py:152`, `turns.py:21`, `:46`, `:115` | 6 |
+| 16 | Verified answer streamed in 8-word chunks, then `done` with citations and message id | `api/main.py:183-186` | 6 |
+| 17 | 👍/👎 → `/v1/feedback`; 👎 becomes a review candidate → `make review` → golden set | `turns.py:161`, `review_cli.py` | 9 |
+| 18 | The next PR touching this path is evaluated on that case by `eval-gate` | `.github/workflows/eval-gate.yml` | 7, 8 |
+
+Measured on a real run (Lesson 0): retrieve 2.4 s, generate 2.0 s, verify 1.3 s, ~5.7 s total;
+greetings ~1 s; a cold start on the free host adds 30–50 s.
+
+### Gaps found while writing this guide
+Writing each lesson meant re-reading every file and re-running commands, which turned up these.
+None was changed (answer tuning is frozen; each needs the owner's decision):
+
+| Gap | Where | Lesson |
+|---|---|---|
+| Archived penalty pushes the 2025 price list from #1 to #9, out of the top 6, even when asked for 2025 prices; no golden case covers it | `configs/retrieval.yaml` `archived_penalty` | 3 |
+| A price sentence **without** a citation isn't checked when other sentences are cited | `rag/answer.py:150` (`uncited` unused) | 4 |
+| The gate's consent rule always reports "not measured" (no lead eval) | `evals/compare.py:69` | 7 |
+| 22 of the 24 judge labels are stale against the current baseline | `evals/judge_labels/labels.jsonl` | 7 |
+| `judge.py` docstring still says Gemini | `evals/judge.py:1` | 7 |
+| API tests write into the local DB, filling the local review queue with test rows | `tests/test_api.py` | 9 |
+| Duplicate badges `[DENT-007][DENT-007]` when two cited sections share a document | `rag/answer.py:140` | 4 |
+| q-054 "call 112" safety gap (already known, deferred) | `prompts/answer.md` | 9 |
+
+### Interview cheat sheet
+
+**30-second pitch.** "A support chatbot for a dental clinic that answers only from the clinic's
+documents. It uses hybrid search in Postgres (full-text + pgvector, weighted rank fusion), a
+generator that must cite every fact, and a verifier that checks every price and code against the
+cited source in code and every claim with a second model, falling back safely if anything fails.
+A LangGraph flow handles follow-ups, consent-gated lead capture and live staff handoff. Every pull
+request runs a 53-case eval with a validated LLM judge, and CI blocks merges that lower quality or
+safety; it blocked a harmful PR that passed all unit tests. It's live on Render + Neon."
+
+**Numbers to remember**
+
+| | |
+|---|---|
+| Correctness (judge, 53 cases) | 0.83 (44/53) |
+| Faithfulness · citation accuracy | 1.00 · 1.00 (113 claims) |
+| Safety · abstention recall | 1.00 · 1.00 |
+| Retrieval recall@5 / MRR | 0.90 / 0.85 (dev hybrid 0.76 → 0.93 after weighted RRF) |
+| Judge vs human labels | kappa 0.36 → 0.59 |
+| Rewriter on topic-dropping follow-ups | 0/4 → 4/4 right document first |
+| Hesitant replies read as consent | 0/9 |
+| Tests · eval cases | 112 tests (~19 s, no keys) · 53 cases (41 dev / 12 holdout) |
+| Latency | ~6–10 s per real answer, ~1 s greeting, +30–50 s cold start |
+
+**Decisions you should be able to defend**
+
+| Decision | Why | Trade-off |
+|---|---|---|
+| Hybrid search, full-text weight 0.3 | Vector misses exact IDs; equal weights let common words win | One more query per search |
+| Heading-aware chunks | Beat fixed windows in every mode | PDF heading rules are document-specific |
+| Verify before showing | A wrong price that flashes on screen is still wrong | First word arrives later |
+| Code check before LLM check | Exact, free, catches the costliest error | Computed totals can't pass (known limitation) |
+| Custom thin LLM layer | One retry policy, own cache key, JSON repair | No ecosystem integrations |
+| LangGraph for the flow | Typed state, deterministic routing, Postgres checkpointer | Another framework to learn |
+| Checklist judge, verdict in code | Holistic grade was too lenient (kappa 0.36) | Strict about omitted details |
+| LLM cache keyed by full request | Makes CI cheap and repeatable | Cached failures persist (q-054) |
+| One Postgres for everything | One service, transactions, hybrid search in SQL | Not tuned for millions of vectors |
+| Free tiers (Groq, Gemini, Render, Neon) | ₹0 live demo | ~40 answers/day, cold starts, one instance |
+
+**Honest weaknesses (and what you'd do next)**
+1. Small golden set (53) → grow it from production via `make review`, and add harder follow-ups.
+2. Free-tier quota caps capacity → paid tier; then Redis for presence and rate limits, so it can
+   run on several instances.
+3. Multi-rule totals (q-016) → a deterministic calculator tool the generator can call, with its
+   output treated as a source.
+4. Judge validated on 24 labels from an earlier run → re-label on the current baseline, grow to
+   30+.
+5. The gaps listed above, each as its own measured PR.
+
+### Try it yourself
+```bash
+uv run pytest -q                               # 112 tests, ~19 s
+uv run pytest -q --durations=5                 # the slowest ones (KB loading ~10 s)
+uv run pytest tests/test_rag.py -q -k emergency   # the emergency invariants
 ```
