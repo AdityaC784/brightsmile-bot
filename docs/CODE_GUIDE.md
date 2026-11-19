@@ -11,7 +11,7 @@ built that way, and what an interviewer is likely to ask. Every claim points to 
 | 2 | [Knowledge-base ingestion](#lesson-2--knowledge-base-ingestion) | `src/bot/retrieval/loaders.py`, `chunking.py`, `ingest.py`, `src/bot/db/` |
 | 3 | [Hybrid retrieval](#lesson-3--hybrid-retrieval) | `src/bot/retrieval/hybrid.py` |
 | 4 | [Grounded answering + self-verification](#lesson-4--grounded-answering--self-verification) | `src/bot/rag/` |
-| 5 | Conversation flow (LangGraph) | `src/bot/graph/`, `src/bot/leads/` |
+| 5 | [Conversation flow (LangGraph)](#lesson-5--conversation-flow-langgraph) | `src/bot/graph/`, `src/bot/leads/` |
 | 6 | API & product | `src/bot/api/` |
 | 7 | Evaluation | `evals/` |
 | 8 | CI/CD & deployment | `.github/workflows/`, `Dockerfile` |
@@ -455,11 +455,11 @@ Token counts are approximate (`\w+|[^\w\s]` pieces, `:17`). That's enough for si
 it avoids loading a tokenizer that matches neither model exactly.
 
 **5. The fixed chunker, kept as a baseline** (`chunking.py:186`): 300-token windows with a
-50-token overlap over the flattened text. Both chunkers are always indexed (`ingest.py:298`), in
+50-token overlap over the flattened text. Both chunkers are always indexed (`ingest.py:69`), in
 the same table with a `chunker` column, so the chunking experiment switches with one config
 value (`retrieval.yaml: chunking.strategy`) and no re-ingest.
 
-**6. What gets embedded** (`ingest.py:269`)
+**6. What gets embedded** (`ingest.py:40`)
 ```python
 def embedding_text(c: Chunk, status: str) -> str:
     flag = "[ARCHIVED — superseded, not current]\n" if status == "archived" else ""
@@ -469,7 +469,7 @@ The title and section path are added before the content, so a chunk that only sa
 still carries "2026 Service Tariff" in its vector. The archived 2025 price list is marked in its
 embedding text too.
 
-**7. `kb_version`: one hash for everything that shapes the index** (`ingest.py:275`)
+**7. `kb_version`: one hash for everything that shapes the index** (`ingest.py:46`)
 ```python
 h.update(json.dumps(manifest, sort_keys=True).encode())
 for name in sorted(files):
@@ -480,7 +480,7 @@ h.update(json.dumps(load_yaml("models")["embeddings"], sort_keys=True).encode())
 Every chunk row stores it, `/v1/health` reports it, and every eval run records it. A score
 is always tied to an exact KB, chunking settings and embedding model.
 
-**8. Replace, atomically** (`ingest.py:312`)
+**8. Replace, atomically** (`ingest.py:83`)
 ```python
 with conn.transaction():
     conn.execute("DELETE FROM chunks WHERE tenant_id = %s", (settings.tenant_id,))
@@ -516,7 +516,7 @@ CREATE INDEX chunks_embedding_idx ON chunks USING hnsw (embedding vector_cosine_
   its own tables at startup.
 - `tenant_id` is on every chunk: one database could hold several clinics.
 
-**10. Migrations** (`migrate.py:371`): a `schema_migrations` table records applied files;
+**10. Migrations** (`migrate.py:20`): a `schema_migrations` table records applied files;
 each new `NNN_*.sql` runs once, in its own transaction, in name order. The Docker container runs
 it on every start, so a deploy brings Neon's schema up to date.
 
@@ -992,4 +992,244 @@ sections. Verification was the slowest step here (4.3 s for three claims).
 uv run python -m bot.rag.ask "Can I cancel my cleaning appointment for free?" --debug
 uv run python -m bot.rag.ask "My tooth got knocked out playing cricket" --debug     # handoff path
 uv run pytest tests/test_rag.py -q
+```
+
+---
+
+## Lesson 5 — Conversation flow (LangGraph)
+
+### Purpose
+Lesson 4 answers **one question**. A real chat is more than that: greetings, follow-ups like
+"how long does it last?", "I'd like to book", "let me talk to a person", and emergencies in the
+middle of any of these. This layer is a **LangGraph state machine** that decides, for each
+message, which path it takes, and it remembers each conversation in Postgres (by `thread_id`)
+between messages and server restarts.
+
+### Files
+| File | Role |
+|---|---|
+| `src/bot/graph/state.py` | `ChatState`: the transcript, per-turn fields and fields that persist (lead, staff mode) |
+| `src/bot/graph/nodes.py` | The 8 nodes (`classify`, `rewrite`, `support`, `lead`, `handoff`, `staff`, `greet`, `refuse`) and the two routing functions |
+| `src/bot/graph/builder.py` | Wires nodes and edges, `new_turn()`, and the Postgres checkpointer |
+| `src/bot/graph/chat.py` | Terminal chat over the full graph (`make chat`, `--debug` shows intent and rewritten query) |
+| `src/bot/leads/store.py` | `save_lead()` (refuses without consent, one row per chat) and `delete_lead()` |
+| `prompts/classify.md`, `rewrite.md`, `lead_extract.md` | Instructions for the three `utility`-model steps |
+
+### How it works
+```mermaid
+flowchart TD
+    S([new message]) --> C[classify<br/>intent + emergency flag]
+    C --> R{route}
+    R -->|support| RW[rewrite follow-up] --> SUP[support:<br/>Lesson 4 pipeline]
+    R -->|lead| L[lead:<br/>slots + consent]
+    R -->|handoff| H[handoff:<br/>staff take over]
+    R -->|greeting| G[greet: fixed text]
+    R -->|out_of_scope| RF[refuse: fixed text]
+    R -->|staff hold the chat| ST[staff: bot stays silent]
+    SUP --> A{after_support}
+    A -->|asked for a person<br/>+ emergency| H
+    A -->|otherwise| E([END])
+    L --> E
+    H --> E
+    G --> E
+    RF --> E
+    ST --> E
+```
+The order of the checks in `route` (`nodes.py:102`) **is** the policy:
+
+| # | Condition | Goes to | Why |
+|---|---|---|---|
+| 1 | Staff hold the chat **and** red-flag symptom | `rewrite` → `support` | An emergency can't wait for a slow human |
+| 2 | Staff hold the chat | `staff` | The bot stays quiet; the message waits for staff |
+| 3 | Asks for a person **and** red-flag symptom | `rewrite` → `support`, then `handoff` | First aid now, then a person |
+| 4 | In the middle of a lead and the message is support / lead / greeting | `lead` | Don't lose the booking; `lead` still answers questions |
+| 5 | Otherwise, by intent | `rewrite`, `lead`, `handoff`, `greet`, `refuse` | |
+
+### Key code
+
+**1. State: what's remembered** (`state.py:45`)
+```python
+class ChatState(TypedDict, total=False):
+    messages: Annotated[list[Turn], operator.add]   # transcript: nodes return new turns, they're appended
+    question: str        # latest message           ┐
+    standalone: str      # rewritten for search      │ reset every turn by new_turn()
+    intent: Intent                                   │
+    reply: Reply         # answer + grounding data   │
+    emergency: bool                                  ┘
+    lead: Lead                       # need, timeline, budget; name/phone/email only after consent
+    lead_stage: LeadStage | None     # collecting → awaiting_consent → saved | declined
+    handoff_pending: bool            # staff hold the chat
+    staff_waiting_since: float | None
+```
+`Annotated[..., operator.add]` is a LangGraph **reducer**: when a node returns
+`{"messages": [new_turn]}`, LangGraph appends instead of replacing. `new_turn()`
+(`builder.py:54`) resets the per-turn fields; lead and staff fields carry over.
+
+**2. Wiring** (`builder.py:31`)
+```python
+g.add_edge(START, "classify")
+g.add_conditional_edges("classify", n.route, ["rewrite", "lead", "handoff", "greet", "refuse", "staff"])
+g.add_edge("rewrite", "support")
+g.add_conditional_edges("support", n.after_support, ["handoff", END])
+for leaf in ("lead", "handoff", "greet", "refuse", "staff"):
+    g.add_edge(leaf, END)
+return g.compile(checkpointer=checkpointer)
+```
+`route` and `after_support` are plain functions of the state: no LLM call, easy to unit-test.
+
+**3. Memory: the Postgres checkpointer** (`builder.py:68`)
+```python
+with PostgresSaver.from_conn_string(database_url) as cp:
+    cp.setup()          # creates LangGraph's own tables once
+    yield cp
+...
+graph.invoke(new_turn(thread_id, text), {"configurable": {"thread_id": thread_id}})
+```
+After every node, LangGraph saves the state under the `thread_id`. The next message loads it,
+so a chat survives restarts and Render's sleep, and threads never see each other's data
+(tests: `test_threads_are_isolated`, `test_postgres_checkpointer_persists_threads_across_graph_instances`).
+
+**4. classify: intent + emergency in one call** (`nodes.py:91`)
+```python
+class _Intent(BaseModel):
+    intent: Intent           # support | lead | handoff | greeting | out_of_scope
+    emergency: bool = False
+    reason: str = ""
+```
+The prompt defines each intent with examples. Rude or "ignore your instructions" messages about
+the clinic stay `support` (the answer prompt handles them safely), and an explicit request for a
+person is `handoff` even with a question attached. The emergency flag is separate from the
+intent, so "my face is swelling, get me a doctor" is `handoff` **and** an emergency → rule 3.
+Validators make the labels forgiving (`"Out of scope"` → `out_of_scope`, `"yes"` → `True`).
+
+**5. rewrite: follow-ups into full questions** (`nodes.py:132`)
+```python
+if not history:                       # first message: nothing to resolve, no LLM call
+    return {"standalone": state["question"]}
+parsed, _ = self.utility.chat_json(load_prompt("rewrite"), [...], _Standalone)
+return {"standalone": parsed.standalone.strip() or state["question"]}
+```
+The rewritten question is used **only for search** (`support` passes it as `query=`); the
+generator still sees the patient's own words plus the last 6 turns. The prompt: resolve
+references, keep every detail, don't answer, don't add facts.
+
+**6. lead: slot-filling with a consent gate** (`nodes.py:233`)
+Every lead turn runs one extraction call (`_LeadExtract`: need, timeline, budget, name, phone,
+email, `consent: yes|no|unclear`, and any `question` the message also asks). Then:
+```python
+consented = stage == "awaiting_consent" and ex.consent == "yes"
+if consented:
+    for k in ("name", "phone", "email"):
+        if getattr(ex, k):
+            slots[k] = getattr(ex, k)       # personal data is kept ONLY here
+```
+```mermaid
+stateDiagram-v2
+    [*] --> collecting: booking intent
+    collecting --> collecting: no need known yet ("Which treatment?")
+    collecting --> awaiting_consent: need known → show consent_text
+    awaiting_consent --> saved: yes + name + phone → save_lead()
+    awaiting_consent --> awaiting_consent: yes but phone missing / unclear → ask again
+    awaiting_consent --> declined: no → drop name/phone/email
+    collecting --> declined: no
+```
+- **Consent is a state, not a guess.** Details are kept only if the consent text has already
+  been shown (`awaiting_consent`) **and** the reply is a yes. A name typed before the consent
+  text is not kept; once the patient says yes, details are re-read from the conversation, so the
+  stored `consent_text` is exactly what they saw (test: `test_details_volunteered_before_consent_text_are_not_kept`).
+- **Help first:** if the message also asks a question ("…and how much is it?"), the full
+  verified answer pipeline answers it in the same reply (`:262`).
+- **Phone required, email optional** (`:277`); both are joined into `contact`.
+- **"No" wipes** any personal fields from the state (`:267`).
+- The defence goes deeper than the node: `save_lead()` itself raises `ConsentRequired` if called
+  without `consented=True` (`store.py:33`), and `thread_id UNIQUE` + `ON CONFLICT DO UPDATE`
+  makes a repeated save update the same row instead of creating a duplicate.
+
+**7. handoff and staff** (`nodes.py:203`, `:224`)
+- `handoff` sets `handoff_pending = True` and starts the wait timer, but **only if a staff
+  member has the staff page open** (`staff_online`, set by the API). Otherwise the patient gets
+  "Nobody from our team is online right now, call reception…" at once, instead of waiting for
+  nobody.
+- If the bot answered earlier in the same turn (rule 3), the acknowledgement is **added to**
+  that answer (`:215-217`), so the first aid isn't lost.
+- `staff` returns an empty reply: the patient's message is saved for staff and the bot says
+  nothing. Staff replies, ending the chat and timeouts change the state from **outside** the
+  graph with `graph.update_state` (`src/bot/api/staff.py:90`, Lesson 6).
+
+**8. greet and refuse** are fixed texts with no LLM call: a greeting costs one classify call
+only (~1 s in production).
+
+### Real example
+A 3-turn chat through the full graph (fresh thread):
+```
+you> How much is teeth whitening?
+  intent=support  standalone='How much is teeth whitening?'  behavior=answer
+  bot> In-Office LED Power Whitening (SRV-009): ₹8,500 + 18% GST … [DENT-018][DENT-019] …
+you> How long does it last?
+  intent=support  standalone='How long does teeth whitening last?'  behavior=abstain
+  bot> I don't have specific information on how long the whitening results last. … reception …
+you> I'd like to book it
+  intent=lead  behavior=answer  lead_stage=awaiting_consent
+  bot> Would you like our team to contact you about this? If yes, please reply with your name and
+       phone number (an email address is optional). … Also, roughly when would you like to come in?
+```
+Turn 2: the rewriter turned "it" into "teeth whitening", and the bot **abstained** instead of
+guessing, because the retrieved sources didn't state how long results last. Turn 3: a booking
+intent with the need already known goes straight to the consent text; nothing personal is stored
+yet.
+
+### Why it's built this way
+- **A graph instead of one big prompt.** Routing, consent and staff mode are rules that must
+  always hold. As code (`route`, the `lead` stages) they're deterministic and unit-tested (24
+  tests in `tests/test_graph.py`). One mega-prompt that "also handles booking and handoffs"
+  would make them probabilistic.
+- **LangGraph** gives typed state, conditional edges, reducers and a ready Postgres
+  checkpointer, so multi-turn memory and resumable chats needed no custom code.
+- **The rewriter matters on real follow-ups.** On 4 follow-ups that drop the topic ("And for
+  kids?", "Is it painful?"), the raw message found the right document first **0 / 4** times;
+  the rewritten question **4 / 4** (`docs/results.md` §4e).
+- **Consent reading is cautious.** On 9 hesitant replies to the consent text ("maybe later",
+  "why do you need my number?", "is my data safe?"), **0** were read as yes; 4 / 4 clear
+  agreements were (§4e). "unclear" means ask again and keep nothing.
+- **Small model for routing.** classify, rewrite and lead extraction use gpt-oss-20b with low
+  reasoning effort: fast and cheap, and the expensive generator only runs when there's a
+  question to answer.
+
+### Limits and gotchas
+- **A misclassification sends the message down the wrong path**; there is no second opinion.
+  The prompts are deliberately broad (anything about the clinic is `support`), and the answer
+  pipeline still refuses or abstains safely.
+- **Every message costs a classify call**, and follow-ups an extra rewrite call: 2–4 utility
+  calls plus 1–2 generator calls per answered question.
+- The eval gate uses **hand-written** standalone questions for follow-ups, so a worse rewriter
+  wouldn't fail CI; the spot check above is a separate, manual measurement.
+- The rewriter can leave a reference unresolved (q-045: "them" kept → right document at rank 3
+  instead of 1, §4e).
+- Staff mode (`handoff_pending`) lives in the checkpointed state, but **who is online** lives in
+  server memory (Lesson 6), so it assumes one server instance.
+- After a lead is saved, asking to book again starts a new enquiry on the same thread and
+  updates the same lead row (one lead per chat).
+
+### Interview questions
+1. **"Why LangGraph?"** The conversation has branches (support, lead, handoff, staff mode) and
+   must remember state across messages. LangGraph gives typed state, deterministic routing
+   functions and a Postgres checkpointer for persistence. The rules are code, not prompt text.
+2. **"How do you handle follow-up questions?"** A rewrite step turns the message plus the
+   recent conversation into a standalone question used only for search. Measured: on
+   topic-dropping follow-ups, raw message 0 / 4 vs rewritten 4 / 4 right document first.
+3. **"How do you make sure you never store personal data without consent?"** Three layers: the
+   graph keeps name/phone/email only in the `awaiting_consent` stage after a clear yes;
+   `save_lead` refuses without `consented=True`; the stored row carries `consent_at` and the
+   exact `consent_text` shown. Hesitant replies are read as "unclear" (0 / 9 false yes).
+4. **"What if someone asks for a human during an emergency?"** The bot answers first with
+   verified first aid and where to go, then hands off; while staff hold a chat, red-flag
+   messages still get the bot's answer at once.
+5. **"How is conversation memory stored?"** LangGraph's `PostgresSaver` checkpoints the state
+   after each node, keyed by `thread_id`; the transcript uses an append reducer.
+
+### Try it yourself
+```bash
+make chat     # or: uv run python -m bot.graph.chat --debug
+# try: "How much is teeth whitening?" → "How long does it last?" → "I'd like to book it"
+uv run pytest tests/test_graph.py -q
 ```
