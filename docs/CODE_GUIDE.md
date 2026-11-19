@@ -9,7 +9,7 @@ built that way, and what an interviewer is likely to ask. Every claim points to 
 | 0 | [Big picture](#lesson-0--big-picture) | `configs/`, `Makefile` |
 | 1 | [Config & LLM layer](#lesson-1--config--llm-layer) | `src/bot/config.py`, `src/bot/llm/` |
 | 2 | [Knowledge-base ingestion](#lesson-2--knowledge-base-ingestion) | `src/bot/retrieval/loaders.py`, `chunking.py`, `ingest.py`, `src/bot/db/` |
-| 3 | Hybrid retrieval | `src/bot/retrieval/hybrid.py` |
+| 3 | [Hybrid retrieval](#lesson-3--hybrid-retrieval) | `src/bot/retrieval/hybrid.py` |
 | 4 | Grounded answering + self-verification | `src/bot/rag/` |
 | 5 | Conversation flow (LangGraph) | `src/bot/graph/`, `src/bot/leads/` |
 | 6 | API & product | `src/bot/api/` |
@@ -570,4 +570,207 @@ docker compose up -d --wait db
 uv run python -m bot.db.migrate          # "Schema up to date."
 uv run python -m bot.retrieval.ingest    # 36 documents -> {'heading': 234, 'fixed': 181}, embeddings from cache
 uv run pytest tests/test_loaders_chunking.py -q
+```
+
+---
+
+## Lesson 3 — Hybrid retrieval
+
+### Purpose
+Given a patient's question, find the 6 chunks most likely to contain the answer. Two searches
+run in **one SQL query**: Postgres full-text search (good at exact words and IDs like
+`SRV-005A`) and pgvector similarity (good at meaning: "molar RCT cost" ≈ "root canal price").
+Their rankings are merged with **weighted Reciprocal Rank Fusion**, and then rows that the found
+chunks refer to by code (`REF-03`, `PKG-002`) are added.
+
+### Files
+| File | Role |
+|---|---|
+| `src/bot/retrieval/hybrid.py` | `HybridRetriever.search()` (one SQL query, three modes) and `expand_references()` |
+| `src/bot/retrieval/inspect.py` | Debug CLI: see what each mode returns, with both ranks per hit (`make search Q="…"`) |
+| `configs/retrieval.yaml` | `mode`, `candidates_per_list: 50`, `rrf_k: 60`, `lexical_weight: 0.3`, `top_k: 6`, `archived_penalty: 0.85`, `expand_references: 3` |
+| `evals/retrieval_eval.py` | recall@5 / MRR against hand-labelled gold documents (Lesson 7) |
+
+### How it works
+```mermaid
+flowchart LR
+    Q[question] --> LQ[lexical_query:<br/>terms joined with OR]
+    Q --> EQ[embed_query<br/>Gemini, RETRIEVAL_QUERY]
+    LQ --> L[full-text top 50<br/>ts_rank_cd]
+    EQ --> D[vector top 50<br/>cosine distance, HNSW]
+    L --> F[FULL OUTER JOIN<br/>weighted RRF<br/>× 0.85 if archived]
+    D --> F
+    F --> T[top 6]
+    T --> X[expand_references:<br/>+ up to 3 rows named<br/>by code]
+    X --> G[generator]
+```
+`rag/answer.py:178` calls `search()` (with the rewritten question if there is one, Lesson 5),
+then `expand_references()` (`:179-181`).
+
+### Key code
+
+**1. Turning a question into a full-text query** (`hybrid.py:46`)
+```python
+def lexical_query(text: str) -> str:
+    terms = re.findall(r"[\w₹]+(?:[-/][\w]+)*", text)
+    return " or ".join(t for t in terms if t.lower() != "or")
+```
+Postgres's `websearch_to_tsquery` **ANDs** bare words, so "how much does a root canal cost for
+a molar" would only match a chunk containing every word, which is almost none. Joining the terms
+with OR matches any of them, and `ts_rank_cd` ranks higher the chunks that cover more terms.
+The regex keeps `SRV-005A` together as one term, which Postgres then matches as an exact phrase.
+Stop words ("how", "a") are dropped by the `english` configuration.
+
+**2. Both searches and the fusion in one SQL statement** (`hybrid.py:57`)
+```sql
+WITH lexical AS (
+    SELECT id, row_number() OVER (ORDER BY ts_rank_cd(fts, q) DESC, id) AS rank
+    FROM chunks, websearch_to_tsquery('english', %(lex)s) AS q
+    WHERE %(use_lex)s AND tenant_id = %(tenant)s AND chunker = %(chunker)s AND fts @@ q
+    ORDER BY ts_rank_cd(fts, q) DESC, id  LIMIT %(n)s
+),
+semantic AS (
+    SELECT id, row_number() OVER (ORDER BY embedding <=> %(vec)s::vector, id) AS rank
+    FROM chunks
+    WHERE %(use_dense)s AND tenant_id = %(tenant)s AND chunker = %(chunker)s
+    ORDER BY embedding <=> %(vec)s::vector, id  LIMIT %(n)s
+)
+SELECT c.*, (%(w_lex)s * coalesce(1.0 / (%(k)s + l.rank), 0.0)
+                       + coalesce(1.0 / (%(k)s + s.rank), 0.0))
+            * CASE WHEN c.status = 'archived' THEN %(penalty)s ELSE 1.0 END AS score, ...
+FROM lexical l FULL OUTER JOIN semantic s USING (id)
+JOIN chunks c ON c.id = coalesce(l.id, s.id)
+ORDER BY score DESC, c.id  LIMIT %(top_k)s
+```
+- Each list keeps only a **rank** (1, 2, 3…), not its raw score, because a `ts_rank_cd` value
+  and a cosine distance aren't on the same scale and can't be added.
+- **RRF**: `score = 0.3 × 1/(60 + rank_fulltext) + 1/(60 + rank_vector)`. A chunk missing from a
+  list gets 0 from it (`coalesce`). **FULL OUTER JOIN** keeps chunks found by only one side.
+- `<=>` is pgvector's cosine-distance operator; the HNSW index from Lesson 2 makes it fast.
+- `, id` in every `ORDER BY` breaks ties the same way every time, so results are deterministic.
+- `use_lex` / `use_dense` flags let the **same query** run hybrid, full-text-only or
+  vector-only (`search(mode=…)`), which is how the three modes were compared fairly.
+
+What the numbers look like (k = 60, full-text weight 0.3):
+
+| Where the chunk ranks | Score |
+|---|---|
+| #1 in both lists | 0.3/61 + 1/61 = **0.0213** |
+| #1 in the vector list only | 1/61 = 0.0164 |
+| #1 in the full-text list only | 0.3/61 = 0.0049 |
+| #50 in the vector list only | 1/110 = 0.0091 |
+
+`k = 60` is the standard value from the original RRF paper: it flattens the curve so that rank 1
+vs rank 3 isn't a huge jump.
+
+**3. pgvector settings for filtered search** (`hybrid.py:129-132`)
+```python
+conn.execute("SET LOCAL hnsw.ef_search = 100")
+conn.execute("SET LOCAL hnsw.iterative_scan = relaxed_order")
+```
+HNSW finds nearest neighbours first and applies the `WHERE` filter (tenant, chunker) after. With
+two chunkers in one table, about half the neighbours get filtered out, so the query could return
+fewer than 50 rows. Iterative scan (pgvector ≥ 0.8) keeps searching until enough rows pass.
+`SET LOCAL` applies to this transaction only.
+
+**4. Reference expansion: one hop** (`hybrid.py:136`)
+```python
+ROW_CODE = re.compile(r"\b(?:REF|PKG|PAY|WLK|EQP)-[A-Z0-9]+\b")
+...
+have = {h.doc_id.split("#", 1)[-1] for h in hits}
+for h in hits:
+    for code in ROW_CODE.findall(h.content):
+        if code not in have and code not in wanted:
+            wanted.append(code)
+# SELECT ... WHERE split_part(doc_id, '#', 2) = ANY(wanted)
+extra = [Hit(*by_code[c], 0.0, None, None) for c in wanted if c in by_code][:limit]
+```
+The KB refers to itself: the package row `PKG-002` says "refund policy code: REF-03; REF-04".
+A question about cancelling a package retrieves `PKG-002` but not necessarily `REF-03`. This step
+fetches up to 3 such rows directly by their citation id (CSV rows have ids like
+`DENT-024#REF-03` from Lesson 2). They're added **after** the top 6 with score 0, so they never
+push out a searched chunk. Only one hop: rows named by the added rows aren't followed.
+
+### Real example: why hybrid
+`uv run python -m bot.retrieval.inspect "SRV-005A" --compare --k 3`:
+```
+hybrid:  1. DENT-014#intro                     lex=7  dense=3
+         2. DENT-023#PKG-002                   lex=14 dense=5
+         3. DENT-014#2-endodontic-…-identifier lex=1  dense=14
+lexical: 1. DENT-014#2-endodontic-…-identifier          (the exact-ID section)
+dense:   1. DENT-005#EQP-005   ← an X-ray sensor: a similar-looking code, the wrong thing
+```
+Embeddings treat `SRV-005A` as a vague "code-like" string, so vector search put an equipment row
+first. Full-text matched the ID exactly. Hybrid keeps the right document (DENT-014) at #1 and
+still ranks the exact section in the top 3.
+
+### Why it's built this way
+Measured on the dev split (recall@5 / MRR, `docs/results.md` §1, §1b):
+
+| Setup | recall@5 / MRR |
+|---|---|
+| Equal-weight RRF (weight 1.0) | 0.76 / 0.78 |
+| Weight 0.5 | 0.86 / 0.78 |
+| **Weight 0.3 (adopted)** | **0.88 / 0.79** → 0.93 / 0.82 after the gold labels were cleaned up |
+| Weight 0.15 | 0.90 / 0.80 |
+| Vector only | 0.88 / 0.80 (0.95 / 0.83 later), **but loses exact IDs** |
+
+Re-run today on the current golden set (35 scored dev cases, `make eval-retrieval`): hybrid
+**0.91 / 0.84**, vector only 0.92 / 0.84, full-text only 0.80 / 0.72; with fixed chunks, hybrid
+0.86 / 0.79. Vector-only is still level on these averages; the exact-ID example above is why
+hybrid is used anyway.
+
+- **Equal weights hurt.** Common words ("price", "treatment") match many chunks, and in the
+  full-text list they pushed correct documents down to #12–#15 even when vector search had them
+  at #1–#2. Lowering the full-text weight fixed that while keeping exact IDs at rank 1.
+- **0.3, not 0.15:** 0.15 scored slightly higher but on only 21 cases; 0.3 keeps full-text
+  meaningful and avoids fitting the dev set too closely.
+- **Why not vector-only, if it scores 0.95?** Because doc-level recall@5 is lenient: it hides
+  that vector search ranks the wrong item first for exact IDs, and in a clinic bot "SRV-005A"
+  vs "EQP-005" is a wrong price or a wrong service.
+- **RRF instead of mixing raw scores:** no score normalisation and no per-query calibration.
+  It only uses ranks.
+- **Reference expansion instead of multi-hop agents:** one deterministic SQL lookup, no extra
+  LLM call. It was added for multi-rule questions (q-016 brings in REF-03 through the PKG-002
+  row, §2c).
+- **Archived documents stay indexed** (with a penalty and an `[ARCHIVED]` flag) so the bot can
+  say "that was the 2025 price; the current one is…" instead of not knowing.
+
+### Limits and gotchas
+- **The archived penalty can bury the old price list even when asked for it.** For "What was
+  the price of a root canal in 2025?", DENT-020 is **#1 in both lists** (0.0213) but × 0.85 =
+  0.0181 puts it at **#9**, outside the top 6. RRF scores are squeezed into a narrow range
+  (~0.015–0.021 across the top 10), so even a 15 % penalty moves a chunk many places. The config
+  comment calls 0.85 "a starting point"; no golden case tests 2025 prices yet.
+- `ts_rank_cd` is not BM25 (no proper term-frequency saturation or length normalisation).
+  Good enough with a 0.3 weight; a real BM25 (e.g. ParadeDB) would be the upgrade.
+- `abstention.min_top_score` is 0.0, so it's off: a fixed score threshold didn't separate
+  answerable from unanswerable questions. Abstaining is the generator's decision, based on the
+  sources it got (Lesson 4).
+- Every search opens a new database connection; fine at this traffic, a pool would be next.
+- Search takes ~2.4 s, mostly the Gemini embedding call for the question.
+
+### Interview questions
+1. **"Why hybrid search?"** Vector search understands meaning but misses exact IDs; full-text
+   finds exact words but drowns in common words. Measured: vector-only ranked an equipment code
+   first for "SRV-005A"; equal-weight hybrid dropped recall to 0.76; weighted hybrid kept exact
+   IDs at #1 and reached 0.93 recall@5.
+2. **"What is RRF and why use it?"** Reciprocal Rank Fusion: score = Σ weight / (k + rank). It
+   merges ranked lists using only positions, so you never have to make a cosine distance and a
+   text-rank score comparable. k = 60 smooths the gap between neighbouring ranks.
+3. **"How did you pick 0.3?"** A sweep on the dev split (1.0, 0.7, 0.5, 0.3, 0.15) measuring
+   recall@5 and MRR. 0.15 was marginally better on 21 cases; 0.3 was chosen to avoid overfitting.
+   The sweep is recorded in the YAML comment and in `results.md`.
+4. **"How do you handle documents that refer to other documents?"** One-hop reference expansion:
+   find row codes in the retrieved text, fetch those rows by id, add up to 3 as extra sources
+   after the ranked results.
+5. **"What's a gotcha with filtered HNSW queries?"** The filter is applied after the
+   approximate search, so you can get fewer rows than `LIMIT`. Fix: a higher `ef_search` and
+   pgvector's iterative scan.
+
+### Try it yourself
+```bash
+uv run python -m bot.retrieval.inspect "SRV-005A" --compare --k 3     # hybrid vs full-text vs vector
+uv run python -m bot.retrieval.inspect "What was the price of a root canal in 2025?" --k 10
+make eval-retrieval                                                 # recall@5 / MRR per mode
 ```
