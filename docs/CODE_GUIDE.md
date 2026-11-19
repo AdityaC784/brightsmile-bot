@@ -14,7 +14,7 @@ built that way, and what an interviewer is likely to ask. Every claim points to 
 | 5 | [Conversation flow (LangGraph)](#lesson-5--conversation-flow-langgraph) | `src/bot/graph/`, `src/bot/leads/` |
 | 6 | [API & product](#lesson-6--api--product) | `src/bot/api/` |
 | 7 | [Evaluation](#lesson-7--evaluation) | `evals/` |
-| 8 | CI/CD & deployment | `.github/workflows/`, `Dockerfile` |
+| 8 | [CI/CD & deployment](#lesson-8--cicd--deployment) | `.github/workflows/`, `Dockerfile` |
 | 9 | Feedback loop & experiments | `evals/review_cli.py`, `spot_checks.py`, `ragas_check.py` |
 | 10 | Tests & wrap-up | `tests/` |
 
@@ -186,9 +186,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ROOT / ".env", extra="ignore")
     database_url: str = "postgresql://postgres:postgres@localhost:5433/brightsmile"
     groq_api_key: str = ""
-    groq_generator_api_key: str = ""   # optional 2nd key: the generator gets its own quota
+    groq_generator_api_key: str = ""  # optional 2nd key: the generator gets its own quota
     gemini_api_key: str = ""
-    llm_cache_enabled: bool = False    # the eval runner turns this on
+    llm_cache_enabled: bool = False  # the eval runner turns this on
 ```
 `pydantic-settings` reads each field from an environment variable of the same name (or `.env`),
 with type checking. `get_settings()` and `load_yaml()` are wrapped in `@lru_cache` (`:35`, `:40`),
@@ -231,8 +231,9 @@ the key so no folder gets huge.
 ```python
 RETRYABLE_STATUS = {408, 409, 429, 500, 502, 503, 504}
 
+
 def is_retryable(exc):
-    if is_daily_quota(exc):        # "tokens per day (TPD)": won't clear for hours
+    if is_daily_quota(exc):  # "tokens per day (TPD)": won't clear for hours
         return False
     status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
     if isinstance(status, int):
@@ -240,9 +241,15 @@ def is_retryable(exc):
     name = type(exc).__name__.lower()
     return "connection" in name or "timeout" in name
 
-@retry(retry=retry_if_exception(is_retryable), stop=stop_after_attempt(8),
-       wait=wait_retry_after, reraise=True)
-def _call(self, req): return self.provider.complete(req)
+
+@retry(
+    retry=retry_if_exception(is_retryable),
+    stop=stop_after_attempt(8),
+    wait=wait_retry_after,
+    reraise=True,
+)
+def _call(self, req):
+    return self.provider.complete(req)
 ```
 `wait_retry_after` (`providers.py:46`) waits as long as Groq's `Retry-After` header says (or
 Gemini's "retry in 22s" text in the error body), plus a little random jitter, capped at 90 s.
@@ -257,8 +264,11 @@ resp = self.chat(sys_prompt, messages, json_mode=True)
 try:
     return schema.model_validate_json(_extract_json(resp.text)), resp
 except ValidationError as err:
-    repair = [*messages, Message("assistant", resp.text),
-              Message("user", f"That JSON was invalid: {err}. Reply with corrected JSON only.")]
+    repair = [
+        *messages,
+        Message("assistant", resp.text),
+        Message("user", f"That JSON was invalid: {err}. Reply with corrected JSON only."),
+    ]
     ...  # second try; if it also fails → LLMError
 ```
 The Pydantic class is both the instruction (its JSON Schema goes into the prompt) and the check.
@@ -269,8 +279,10 @@ retries that once without JSON mode (`providers.py:95-104`) and lets `chat_json`
 **6. Embeddings** (`src/bot/llm/embeddings.py:56`)
 ```python
 resp = self.client.models.embed_content(
-    model=self.model, contents=texts,
-    config=types.EmbedContentConfig(task_type=task, output_dimensionality=self.dims))
+    model=self.model,
+    contents=texts,
+    config=types.EmbedContentConfig(task_type=task, output_dimensionality=self.dims),
+)
 ...
 return [l2_normalize(v) for v in vecs]
 ```
@@ -402,11 +414,11 @@ Result today: **415 chunks** (234 heading + 181 fixed), `kb_version 08a3673838d7
 ```python
 @dataclass
 class Block:
-    kind: BlockKind          # "heading" | "text" | "table" | "row"
+    kind: BlockKind  # "heading" | "text" | "table" | "row"
     text: str = ""
-    level: int = 0           # heading level
-    rows: list[str] = ...    # table rows, already rendered
-    key: str = ""            # CSV first column, used as the citation anchor
+    level: int = 0  # heading level
+    rows: list[str] = ...  # table rows, already rendered
+    key: str = ""  # CSV first column, used as the citation anchor
 ```
 Each loader returns `Block`s in reading order, so the chunkers don't care about file formats.
 Dispatch is a dict by extension (`:320`).
@@ -473,7 +485,8 @@ embedding text too.
 ```python
 h.update(json.dumps(manifest, sort_keys=True).encode())
 for name in sorted(files):
-    h.update(name.encode()); h.update(files[name].read_bytes())
+    h.update(name.encode())
+    h.update(files[name].read_bytes())
 h.update(json.dumps(load_yaml("retrieval")["chunking"], sort_keys=True).encode())
 h.update(json.dumps(load_yaml("models")["embeddings"], sort_keys=True).encode())
 ```
@@ -820,8 +833,10 @@ flowchart TD
 
 **1. Sources the model can cite** (`answer.py:72`)
 ```python
-parts.append(f'<source id="{sid}" doc="{h.source_doc_id}" status="{status}" '
-             f'title="{h.title}" section="{h.section}">\n{h.content}\n</source>')
+parts.append(
+    f'<source id="{sid}" doc="{h.source_doc_id}" status="{status}" '
+    f'title="{h.title}" section="{h.section}">\n{h.content}\n</source>'
+)
 ```
 Each hit becomes `S1`, `S2`… with its document id, its status (`active` / `ARCHIVED`) and its
 section. The model cites short ids like `[S2]`, which are easy to write correctly; code then maps
@@ -832,8 +847,8 @@ as a defence against prompt injection.
 **2. The output contract** (`answer.py:31`)
 ```python
 class GeneratorOutput(BaseModel):
-    working: str = ""        # private scratch space; never shown, never verified
-    behavior: Behavior       # answer | abstain | clarify | refuse | handoff
+    working: str = ""  # private scratch space; never shown, never verified
+    behavior: Behavior  # answer | abstain | clarify | refuse | handoff
     answer: str
     citations: list[str] = []
 ```
@@ -848,6 +863,7 @@ class GeneratorOutput(BaseModel):
 ```python
 MONEY = re.compile(r"(?:₹|INR|Rs\.?)\s?([\d,]+(?:\.\d+)?)", re.IGNORECASE)
 IDENT = re.compile(r"\b(?:SRV|PKG|REF|POL|ESC|WLK|FRM|PAY|STF|EQP|DENT)-[A-Z0-9-]*\d[A-Z0-9]*\b")
+
 
 def facts_in_text(claim, source_text):
     for m in MONEY.findall(CITE.sub("", claim)):
@@ -883,16 +899,19 @@ as given. Two robustness details:
 **5. Generate → verify → repair → fallback** (`answer.py:211-244`)
 ```python
 v, failure = self._verify(out, source_texts, question)
-for _ in range(vcfg.get("repair_attempts", 0)):          # 1
+for _ in range(vcfg.get("repair_attempts", 0)):  # 1
     if failure is None:
         break
-    messages = [*messages, Message("assistant", out.model_dump_json()),
-                Message("user", self._repair_feedback(v))]
+    messages = [
+        *messages,
+        Message("assistant", out.model_dump_json()),
+        Message("user", self._repair_feedback(v)),
+    ]
     out, resp = self.generator.chat_json(self.system_prompt, messages, GeneratorOutput)
     ...
-    if out.behavior not in GROUNDED:          # the repair chose to abstain: allowed
+    if out.behavior not in GROUNDED:  # the repair chose to abstain: allowed
         if emergency:
-            failure = "repair dropped the emergency handoff"   # ...unless it was an emergency
+            failure = "repair dropped the emergency handoff"  # ...unless it was an emergency
         break
     v, failure = self._verify(out, source_texts, question)
 if failure:
@@ -906,10 +925,10 @@ enough.
 **6. Emergencies never get the generic fallback** (`answer.py:120`, `:214`, `:232`)
 ```python
 if emergency or result.behavior == "handoff":
-    result.answer = self.cfg["emergency_fallback_answer"].strip()   # fixed first aid + hospitals
+    result.answer = self.cfg["emergency_fallback_answer"].strip()  # fixed first aid + hospitals
 else:
     result.behavior = "abstain"
-    result.answer = self.cfg["fallback_answer"].strip()             # "call reception"
+    result.answer = self.cfg["fallback_answer"].strip()  # "call reception"
 ```
 `emergency` is **sticky**: if any attempt was a handoff, a failed reply gets the fixed emergency
 text (written from DENT-035/002/036), and a repair can't turn an emergency into an abstention.
@@ -1068,7 +1087,9 @@ class ChatState(TypedDict, total=False):
 **2. Wiring** (`builder.py:31`)
 ```python
 g.add_edge(START, "classify")
-g.add_conditional_edges("classify", n.route, ["rewrite", "lead", "handoff", "greet", "refuse", "staff"])
+g.add_conditional_edges(
+    "classify", n.route, ["rewrite", "lead", "handoff", "greet", "refuse", "staff"]
+)
 g.add_edge("rewrite", "support")
 g.add_conditional_edges("support", n.after_support, ["handoff", END])
 for leaf in ("lead", "handoff", "greet", "refuse", "staff"):
@@ -1080,7 +1101,7 @@ return g.compile(checkpointer=checkpointer)
 **3. Memory: the Postgres checkpointer** (`builder.py:68`)
 ```python
 with PostgresSaver.from_conn_string(database_url) as cp:
-    cp.setup()          # creates LangGraph's own tables once
+    cp.setup()  # creates LangGraph's own tables once
     yield cp
 ...
 graph.invoke(new_turn(thread_id, text), {"configurable": {"thread_id": thread_id}})
@@ -1092,7 +1113,7 @@ so a chat survives restarts and Render's sleep, and threads never see each other
 **4. classify: intent + emergency in one call** (`nodes.py:91`)
 ```python
 class _Intent(BaseModel):
-    intent: Intent           # support | lead | handoff | greeting | out_of_scope
+    intent: Intent  # support | lead | handoff | greeting | out_of_scope
     emergency: bool = False
     reason: str = ""
 ```
@@ -1104,7 +1125,7 @@ Validators make the labels forgiving (`"Out of scope"` → `out_of_scope`, `"yes
 
 **5. rewrite: follow-ups into full questions** (`nodes.py:132`)
 ```python
-if not history:                       # first message: nothing to resolve, no LLM call
+if not history:  # first message: nothing to resolve, no LLM call
     return {"standalone": state["question"]}
 parsed, _ = self.utility.chat_json(load_prompt("rewrite"), [...], _Standalone)
 return {"standalone": parsed.standalone.strip() or state["question"]}
@@ -1121,7 +1142,7 @@ consented = stage == "awaiting_consent" and ex.consent == "yes"
 if consented:
     for k in ("name", "phone", "email"):
         if getattr(ex, k):
-            slots[k] = getattr(ex, k)       # personal data is kept ONLY here
+            slots[k] = getattr(ex, k)  # personal data is kept ONLY here
 ```
 ```mermaid
 stateDiagram-v2
@@ -1295,18 +1316,18 @@ sequenceDiagram
 **1. The turn runner: never leave the patient hanging** (`main.py:107`)
 ```python
 limit = request.app.state.limiter.check(thread_id, ip)
-if limit:                                   # before any LLM call
+if limit:  # before any LLM call
     return ChatOut(..., behavior="abstain", answer=cfg["rate_limit_answer"])
 ...
 try:
     out = await run_in_threadpool(request.app.state.graph.invoke, turn, cfg)
-except Exception as e:                      # provider outage, quota, DB error
+except Exception as e:  # provider outage, quota, DB error
     log.error("chat.failed", thread_id=thread_id, error=type(e).__name__)
     return ChatOut(..., behavior="abstain", answer=cfg["error_answer"])
 ...
 try:
     message_id = await run_in_threadpool(turns.log_turn, thread_id, body.message, out, pending)
-except Exception as e:                      # logging must not break the reply
+except Exception as e:  # logging must not break the reply
     log.error("turn.log_failed", ...)
 ```
 - Three layers of graceful degradation: **over the limit**, **LLM/DB failure** and **logging
@@ -1323,9 +1344,9 @@ except Exception as e:                      # logging must not break the reply
 ```python
 async def events():
     yield {"event": "status", "data": json.dumps({"status": "thinking"})}
-    result = await _run_turn(request, body)            # includes verification
+    result = await _run_turn(request, body)  # includes verification
     words = result.answer.split(" ")
-    for i in range(0, len(words), 8):                 # verified answer, in small chunks
+    for i in range(0, len(words), 8):  # verified answer, in small chunks
         yield {"event": "answer", "data": json.dumps({"text": " ".join(words[i : i + 8])})}
     yield {"event": "done", "data": result.model_dump_json(exclude={"answer"})}
 ```
@@ -1341,9 +1362,13 @@ can't inject HTML.
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _PHONE = re.compile(r"(?<![\w-])\+?\d[\d\s-]{8,}\d(?![\w-])")
 
+
 def redact(text):
-    keep = {_digits(v) for v in _clinic_numbers()}      # the clinic's own numbers stay
-    def phone(m): return m.group(0) if _digits(m.group(0)) in keep else "[phone]"
+    keep = {_digits(v) for v in _clinic_numbers()}  # the clinic's own numbers stay
+
+    def phone(m):
+        return m.group(0) if _digits(m.group(0)) in keep else "[phone]"
+
     return _PHONE.sub(phone, _EMAIL.sub("[email]", text))
 ```
 Real output:
@@ -1361,9 +1386,12 @@ citations, verifier result (claims, supported, `fallback_reason`, `repaired`), l
 
 **4. Review candidates: the feedback loop starts here** (`turns.py:94-111`, `:161`)
 ```python
-if reply.get("fallback_reason"):   source = "citation_failed"
-elif behavior == "abstain":        source = "abstained"
-elif reply.get("handoff_started"): source = "handoff"
+if reply.get("fallback_reason"):
+    source = "citation_failed"
+elif behavior == "abstain":
+    source = "abstained"
+elif reply.get("handoff_started"):
+    source = "handoff"
 ```
 plus `thumbs_down` from `save_feedback`. Each candidate stores the question, the bot's reply and
 the retrieved ids, which is what the review tool (Lesson 9) shows the owner. Golden 0.7.0
@@ -1371,9 +1399,11 @@ added 3 cases from these real conversations.
 
 **5. Staff chats: state changed from outside the graph** (`staff.py:88-127`)
 ```python
-graph.update_state(_cfg(thread_id),
+graph.update_state(
+    _cfg(thread_id),
     {"messages": [Turn(role="human_agent", content=text)], "staff_waiting_since": None},
-    as_node="staff")
+    as_node="staff",
+)
 ```
 A staff reply isn't a graph run: it's written straight into the checkpointed state, as if the
 `staff` node had produced it, and mirrored into `messages` so the patient's page can poll for
@@ -1396,12 +1426,12 @@ closed just because the server forgot who was there.
 
 **8. Rate limits** (`ratelimit.py:28`)
 ```python
-for rule, (limit, window) in self.rules.items():   # chat/minute 10, chat/day 60, ip/day 100
+for rule, (limit, window) in self.rules.items():  # chat/minute 10, chat/day 60, ip/day 100
     hits = self._hits[keys[rule]]
     while hits and hits[0] <= now - DAY:
         hits.popleft()
     if sum(1 for t in hits if t > now - window) >= limit:
-        return rule                                  # blocked messages are not counted
+        return rule  # blocked messages are not counted
 self._hits[("chat", thread_id)].append(now)
 self._hits[("ip", ip)].append(now)
 ```
@@ -1412,7 +1442,7 @@ proxy sets.
 
 **9. Admin security** (`main.py:98`)
 ```python
-if expected in DEFAULT_ADMIN_KEYS:            # "" or "change-me"
+if expected in DEFAULT_ADMIN_KEYS:  # "" or "change-me"
     raise HTTPException(503, "admin endpoints disabled: ADMIN_API_KEY is not configured")
 if not secrets.compare_digest(x_admin_key, expected):
     raise HTTPException(401, "invalid admin key")
@@ -1533,19 +1563,21 @@ flowchart LR
 **1. A golden case** (`golden_set.py:27`)
 ```python
 class GoldenCase(BaseModel):
-    id: str                      # "q-016"
-    dataset_version: str         # "0.7.0", bumped on every change
+    id: str  # "q-016"
+    dataset_version: str  # "0.7.0", bumped on every change
     split: Literal["dev", "holdout"]
-    type: CaseType               # lookup | exact_id | multi_source | followup | unanswerable | ambiguous | safety
+    type: (
+        CaseType  # lookup | exact_id | multi_source | followup | unanswerable | ambiguous | safety
+    )
     question: str
-    gold_doc_ids: list[str]      # documents that contain the answer, e.g. ["DENT-019"]
+    gold_doc_ids: list[str]  # documents that contain the answer, e.g. ["DENT-019"]
     expected_behavior: Behavior  # answer | abstain | clarify | refuse | handoff
     must_abstain: bool
-    golden_answer: str           # written by the owner from the KB, never by an LLM
-    must_include: list[str] = [] # specific checks, e.g. "booking link or reception number"
+    golden_answer: str  # written by the owner from the KB, never by an LLM
+    must_include: list[str] = []  # specific checks, e.g. "booking link or reception number"
     must_not_include: list[str] = []
-    history: list[Turn] = []     # for follow-ups
-    standalone_question: str | None = None   # hand-written rewrite for follow-ups
+    history: list[Turn] = []  # for follow-ups
+    standalone_question: str | None = None  # hand-written rewrite for follow-ups
 ```
 The mix today: 22 lookup, 6 exact-ID, 6 multi-source, 6 unanswerable, 6 safety (injection,
 diagnosis, medicine…), 4 follow-up, 3 ambiguous. Behaviours: 37 answer, 6 abstain, 5 refuse,
@@ -1554,11 +1586,12 @@ scores both chunkers.
 
 **2. Retrieval metrics** (`retrieval_eval.py:30`, `:36`)
 ```python
-def recall_at_k(ranked_docs, gold, k=5):        # share of gold documents in the top 5
+def recall_at_k(ranked_docs, gold, k=5):  # share of gold documents in the top 5
     top = set(ranked_docs[:k])
     return sum(1 for g in gold if g in top) / len(gold)
 
-def reciprocal_rank(ranked_docs, gold, depth=10):   # 1 / rank of the first gold document
+
+def reciprocal_rank(ranked_docs, gold, depth=10):  # 1 / rank of the first gold document
     for i, d in enumerate(ranked_docs[:depth], 1):
         if d in gold:
             return 1.0 / i
@@ -1595,16 +1628,16 @@ Metrics (`compute_metrics`):
 **4. The checklist judge** (`judge.py:40`)
 ```python
 class Verdict(BaseModel):
-    key_facts: list[KeyFact]           # 1–4 essential facts from the reference: present?
-    must_include: list[IncludeCheck]   # one per given item: satisfied?
+    key_facts: list[KeyFact]  # 1–4 essential facts from the reference: present?
+    must_include: list[IncludeCheck]  # one per given item: satisfied?
     must_not_include: list[ExcludeCheck]  # one per given item: violated?
-    contradictions: list[str]          # wrong price, day, rule, dropped condition…
+    contradictions: list[str]  # wrong price, day, rule, dropped condition…
     behavior_ok: bool
     faithful: bool
     reason: str
 
     @computed_field
-    def correct(self) -> bool:         # decided by code, not by the model
+    def correct(self) -> bool:  # decided by code, not by the model
         return self.behavior_ok and not self.missing and not self.violations
 ```
 The judge sees the question, the reference answer, the must-include / must-not-include lists,
@@ -1620,9 +1653,9 @@ the judge returns fewer `must_include` checks than given, the missing ones count
 3. `score` reports agreement and **Cohen's kappa**, and lists every disagreement.
 ```python
 def cohen_kappa(a, b):
-    po = sum(x == y for x, y in zip(a, b)) / n          # observed agreement
+    po = sum(x == y for x, y in zip(a, b)) / n  # observed agreement
     pa, pb = sum(a) / n, sum(b) / n
-    pe = pa * pb + (1 - pa) * (1 - pb)                   # agreement expected by chance
+    pe = pa * pb + (1 - pa) * (1 - pb)  # agreement expected by chance
     return (po - pe) / (1 - pe)
 ```
 Kappa corrects for chance: if 80 % of replies are correct, a judge that always says "correct"
@@ -1714,4 +1747,218 @@ make eval-retrieval                                        # ~12 s, no LLM calls
 uv run python -m evals.runner --split dev --limit 3        # 3 cases end to end (cached = free)
 uv run python -m evals.compare --baseline evals/baseline.json --candidate evals/baseline.json
 uv run python -m evals.judge_agreement score --run evals/baseline.json   # shows stale labels
+```
+
+---
+
+## Lesson 8 — CI/CD & deployment
+
+### Purpose
+This is what makes the quality checks automatic and the bot live. Every pull request runs two
+GitHub Actions workflows: **`ci`** (lint + 112 unit tests against a real Postgres) and
+**`eval-gate`** (the full eval from Lesson 7, compared with the baseline). `main` is protected,
+so nothing merges unless both pass. After a merge, **Render** builds the Docker image and deploys
+it, with the database on **Neon**.
+
+### Files
+| File | Role |
+|---|---|
+| `.github/workflows/ci.yml` | Job `lint-and-test`: ruff check, ruff format check, migrate, pytest |
+| `.github/workflows/eval-gate.yml` | Job `eval`: restore LLM cache → ingest → run all 53 cases → compare → PR comment → enforce → save cache |
+| `Dockerfile` | `python:3.12-slim` + uv; migrates, then serves on `$PORT` as a non-root user |
+| `.dockerignore` | Keeps `.env`, `.git`, tests, docs, caches and eval runs out of the image |
+| `docker-compose.yml` | Local Postgres 16 + pgvector on port 5433 (same image as CI) |
+| `Makefile` | Thin wrappers (`make test`, `make eval-ci`…) so local and CI run identical commands |
+| `.pre-commit-config.yaml` | ruff, YAML check, whitespace, **detect-private-key** before each commit |
+
+### How it fits together
+```mermaid
+flowchart LR
+    DEV[branch + commit] -->|pre-commit:<br/>ruff, private-key check| PR[pull request]
+    PR --> CI[ci: lint-and-test<br/>Postgres service, no keys]
+    PR --> EG[eval-gate: eval<br/>53 cases vs baseline]
+    EG -->|comment| PR
+    CI --> RS{protect-main ruleset:<br/>both checks green?}
+    EG --> RS
+    RS -->|yes| MAIN[merge to main]
+    MAIN --> CI2[ci on main]
+    CI2 -->|checks pass| RENDER[Render: docker build<br/>+ deploy]
+    RENDER --> NEON[(Neon Postgres<br/>+ pgvector)]
+```
+
+### Key code
+
+**1. `ci`: fast checks with a real database** (`ci.yml:12-37`)
+```yaml
+services:
+  db:
+    image: pgvector/pgvector:0.8.0-pg16      # same image as docker-compose.yml
+steps:
+  - run: uv sync --locked                    # fail if uv.lock is out of date
+  - run: uv run ruff check .
+  - run: uv run ruff format --check .
+  - run: uv run python -m bot.db.migrate
+  # No LLM keys here: tests use scripted models; tests needing an ingested KB skip themselves.
+  - run: uv run pytest -q
+```
+A real Postgres + pgvector runs as a service container, so the database tests (checkpointer,
+leads, turn logging) run in CI too. No API keys: every LLM in the tests is a scripted fake
+(Lesson 10), so `ci` is free, fast and deterministic.
+
+**2. `eval-gate`: the expensive check, made cheap by the cache** (`eval-gate.yml`)
+```yaml
+on:
+  pull_request:
+  workflow_dispatch:          # run on main to (re)fill the LLM cache that PRs restore from
+concurrency:
+  group: eval-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true    # a new push cancels the old run (free-tier quota)
+...
+- name: Restore LLM cache
+  uses: actions/cache/restore@v4
+  with:
+    path: .cache/llm
+    key: llm-${{ hashFiles('prompts/**','configs/**','src/**','data/kb/**','evals/golden/**') }}-${{ github.run_id }}
+    restore-keys: |
+      llm-${{ hashFiles(...) }}-
+      llm-
+- run: uv run python -m bot.db.migrate
+- run: uv run python -m bot.retrieval.ingest
+- run: uv run python -m evals.runner --split all --out evals/runs/pr.json || true
+- run: uv run python -m evals.compare ... --comment-out comment.md
+- run: gh pr comment ... --body-file comment.md --edit-last || gh pr comment ... --body-file comment.md
+- run: uv run python -m evals.compare ... --enforce        # non-zero exit blocks the merge
+- name: Save LLM cache
+  if: always()
+```
+Step by step, the important choices:
+- **No path filter.** A required check must always report; a docs-only PR replays every case
+  from cache in a few minutes at zero API cost.
+- **Cache key = hash of everything that can change a reply + the run id.** GitHub caches are
+  immutable, so each run saves a new entry; `restore-keys` falls back to the newest cache with
+  the same code hash, then to *any* `llm-` cache. Because the LLM cache key is per request
+  (Lesson 1), an old cache is still safe: requests that changed simply miss.
+- **`|| true` on the runner** so the compare step still runs when some cases error, and
+  `compare.py` turns errors into a **hard fail** with a readable PR comment, instead of a red
+  step with no explanation.
+- **Comment, then enforce.** The comment is posted (or the last one edited, so a PR doesn't
+  collect one per push) before the enforce step can fail the job.
+- **Save the cache `if: always()`.** A run cut short by the daily quota keeps the replies it
+  already paid for; the next run continues from there.
+- The ingest step indexes the KB inside the job (embeddings for unchanged chunks come from the
+  restored cache, so no Gemini calls).
+- Secrets (`GROQ_API_KEY`, `GROQ_GENERATOR_API_KEY`, `GEMINI_API_KEY`) are repository secrets,
+  only read in this workflow; `permissions` give it `pull-requests: write` and nothing more.
+
+**3. Cache scope: why `main` has to be filled manually**
+GitHub Actions caches are scoped by branch: a cache saved by a PR run is visible only to that PR,
+but a cache saved on `main` is visible to every PR. So after a baseline change the owner runs
+**Actions → eval-gate → Run workflow** on `main` (`workflow_dispatch`); every later PR then
+restores those replies. On the free tier this took 5 manual runs the first time, each one cut
+short by the daily quota and continuing from the saved cache (`docs/results.md` §4c).
+
+**4. Branch protection**: the `protect-main` ruleset requires a pull request and both checks,
+`lint-and-test` and `eval`, before anything merges into `main` (`audit.md` timeline). Even the
+owner works on a branch.
+
+**5. The Docker image** (`Dockerfile`)
+```dockerfile
+FROM python:3.12-slim
+COPY --from=ghcr.io/astral-sh/uv:0.13.6 /uv /usr/local/bin/uv     # pinned uv binary
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --frozen --no-dev --no-install-project               # deps layer, cached
+COPY src ./src
+COPY evals ./evals
+COPY prompts ./prompts
+COPY configs ./configs
+COPY data/kb ./data/kb
+RUN uv sync --frozen --no-dev
+RUN useradd --create-home app && chown -R app /app
+USER app                                                           # not root
+CMD ["sh", "-c", "python -m bot.db.migrate && exec uvicorn bot.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+```
+- **Dependencies before code**: changing a Python file doesn't reinstall every package; only
+  the last layers rebuild.
+- `--frozen --no-dev`: exactly the locked versions, without pytest, ruff or the RAGAS group.
+- **Migrations on every start**: a deploy brings Neon's schema up to date by itself (applied
+  files are skipped).
+- `exec uvicorn`: uvicorn replaces the shell as PID 1, so it receives Render's stop signal and
+  shuts down cleanly.
+- `${PORT:-8000}`: Render tells the app which port to use through `$PORT`.
+- **No secrets in the image**: keys and `DATABASE_URL` come from the environment at run time,
+  and `.dockerignore` excludes `.env` and `.env.*`.
+
+**6. Render + Neon**
+- **Render** (free web service) builds the Dockerfile from the GitHub repo. Auto-deploy is set to
+  **"After CI checks pass"**, so a commit on `main` deploys only once `ci` is green. Free
+  services sleep after ~15 minutes idle; the first request then takes 30–50 s (the chat page
+  shows "Waking the server up…").
+- **Neon** (free serverless Postgres, pgvector 0.8.7) holds chunks, conversations, leads and
+  LangGraph checkpoints. The KB was indexed once by running the ingest with Neon's
+  `DATABASE_URL`; the admin endpoint `POST /v1/ingest` can re-index it after a KB change.
+
+### Real run
+`docker build -t brightsmile-bot:guide .` then running it against the local database:
+```
+Schema up to date.
+INFO:     Uvicorn running on http://0.0.0.0:8000
+INFO:     172.17.0.1:44680 - "GET /v1/health HTTP/1.1" 200 OK
+{"status":"ok","chunks":234,"kb_version":"08a3673838d7"}
+$ docker exec bsb-guide whoami
+app
+```
+The image is about 1.06 GB (mostly Python packages: LangGraph, the Groq and Google SDKs,
+pdfplumber).
+
+### Why it's built this way
+- **Two workflows, not one**: `ci` is fast, free and needs no secrets; `eval-gate` is slow and
+  uses quota. Splitting them gives a quick red/green on code quality and a separate quality
+  verdict on behaviour.
+- **The eval is a required check**: unit tests can't see that a reply lost its first-aid steps.
+  The bad-PR demo passed all 83 unit tests and was blocked only by the eval (§4c).
+- **Docker for deployment**: the same image runs locally and on Render; nothing depends on the
+  host. Moving to another host means pointing it at the same Dockerfile.
+- **Render + Neon free tiers**: a live demo for ₹0, with real Postgres and pgvector. The
+  limits (sleeping, quota) are documented, not hidden.
+
+### Limits and gotchas
+- **PRs from forks don't get secrets**, so the eval gate can't run for outside contributors as
+  it stands (fine for a one-owner repo).
+- **A full uncached eval needs about two days of free quota**; the gate depends on the cache
+  being filled on `main`.
+- **A reply cached on `main` stays fixed**: if a borderline case's cached reply fails (q-054 did,
+  §4c/§4d), every PR inherits that failure until the case or its inputs change.
+- **Render's auto-deploy didn't fire once** even with "After CI checks pass" set; the commit
+  had to be deployed by hand from the Render dashboard. Check the deployed commit after merging.
+- **The KB isn't re-indexed on deploy**: after changing `data/kb/`, run ingest against Neon (or
+  call `/v1/ingest`); `/v1/health` shows which `kb_version` is live.
+- `kb_version` differs between Windows and Linux for the same files (CRLF vs LF line endings).
+- `ruff format --check` (ruff 0.17) also formats ```python blocks inside Markdown files, so a
+  badly formatted snippet in `docs/` fails `lint-and-test`. Run `uv run ruff format .` before
+  pushing docs (this guide hit it).
+- Cold starts (30–50 s) and the one-instance design (Lesson 6) are free-tier trade-offs.
+
+### Interview questions
+1. **"How do you test LLM changes in CI?"** Two layers: unit tests with scripted LLMs (fast,
+   free, no keys) and an eval gate that runs the real pipeline on 53 golden cases and compares
+   with a committed baseline. Both are required checks on `main`.
+2. **"Isn't running an LLM eval on every PR expensive?"** Every LLM call is cached by a hash of
+   the full request, and the cache is shared through GitHub Actions. A PR only pays for the
+   cases its change actually affects; a docs PR costs nothing.
+3. **"How does a deploy happen?"** Merge to `main` → `ci` passes → Render builds the Dockerfile
+   and starts the container, which applies migrations and starts uvicorn. Secrets are Render
+   environment variables; the database is Neon.
+4. **"What's in your Dockerfile that matters?"** Slim base, pinned uv, dependency layer before
+   the code for build caching, no dev dependencies, a non-root user, migrations at start, `exec`
+   so the server gets stop signals, and no secrets baked in.
+5. **"What would you change for production?"** A paid LLM tier and a non-sleeping instance;
+   presence and rate limits in Redis for several instances; a staging environment; automatic
+   re-indexing when `data/kb/` changes; alerts on error rates and fallbacks.
+
+### Try it yourself
+```bash
+uv run ruff check . && uv run ruff format --check . && uv run pytest -q      # what `ci` runs
+docker build -t brightsmile-bot .
+docker run --rm -p 8000:8000 --env-file .env \
+  -e DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5433/brightsmile brightsmile-bot
 ```
