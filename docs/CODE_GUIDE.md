@@ -12,7 +12,7 @@ built that way, and what an interviewer is likely to ask. Every claim points to 
 | 3 | [Hybrid retrieval](#lesson-3--hybrid-retrieval) | `src/bot/retrieval/hybrid.py` |
 | 4 | [Grounded answering + self-verification](#lesson-4--grounded-answering--self-verification) | `src/bot/rag/` |
 | 5 | [Conversation flow (LangGraph)](#lesson-5--conversation-flow-langgraph) | `src/bot/graph/`, `src/bot/leads/` |
-| 6 | API & product | `src/bot/api/` |
+| 6 | [API & product](#lesson-6--api--product) | `src/bot/api/` |
 | 7 | Evaluation | `evals/` |
 | 8 | CI/CD & deployment | `.github/workflows/`, `Dockerfile` |
 | 9 | Feedback loop & experiments | `evals/review_cli.py`, `spot_checks.py`, `ragas_check.py` |
@@ -1232,4 +1232,258 @@ yet.
 make chat     # or: uv run python -m bot.graph.chat --debug
 # try: "How much is teeth whitening?" → "How long does it last?" → "I'd like to book it"
 uv run pytest tests/test_graph.py -q
+```
+
+---
+
+## Lesson 6 — API & product
+
+### Purpose
+This turns the graph into a product people can use: a **FastAPI** service with a chat page for
+patients and a staff page for the clinic. It streams each reply **only after it was verified**,
+logs every turn with phone numbers and emails masked, flags bad turns for review, runs live
+staff chats (presence, timeouts, ending), lists leads, and limits how many messages a visitor
+can send so one person can't use up the free LLM quota.
+
+### Files
+| File | Role |
+|---|---|
+| `src/bot/api/main.py` | `create_app()`: all endpoints, the admin-key check, the turn runner, SSE streaming |
+| `src/bot/api/schemas.py` | Pydantic request/response models with length and pattern limits |
+| `src/bot/api/turns.py` | Saves conversations and messages (redacted), feedback, review candidates; staff-list queries |
+| `src/bot/api/staff.py` | `Presence` (who is online, in memory), staff `reply` / `end` / `expire` via `graph.update_state` |
+| `src/bot/api/ratelimit.py` | `RateLimiter` (per chat per minute/day, per IP per day) and `client_ip()` |
+| `src/bot/api/static/index.html` | Patient chat page (plain HTML + JS, no framework) |
+| `src/bot/api/static/staff.html` | Staff page: live chats + Leads table, one admin-key login |
+
+### Endpoints
+| Endpoint | Who | What |
+|---|---|---|
+| `POST /v1/chat` | patient | One message → SSE stream (`status` → `answer` chunks → `done`), or JSON with `?stream=false` |
+| `GET /v1/chat/{id}/staff-replies` | patient page, every 5 s while staff hold the chat | New staff messages + presence ping |
+| `GET /v1/chat/{id}/history` | patient page on reload | The conversation so far (redacted) |
+| `POST /v1/feedback` | patient | 👍 / 👎 (+ comment); 👎 creates a review candidate |
+| `GET /v1/handoffs` | staff, every 5 s | Open staff chats with patient online/away/left; marks staff online |
+| `POST /v1/handoff/{id}/reply`, `/end` | staff | Send a message / give the chat back to the bot |
+| `POST /v1/staff/offline` | staff page on lock/close | Staff go offline |
+| `GET /v1/leads`, `DELETE /v1/leads/{id}` | staff | Leads table; hard delete (privacy request) |
+| `POST /v1/ingest` | admin | Re-index the KB |
+| `GET /v1/health` | anyone | DB status, chunk count, `kb_version` |
+| `GET /`, `GET /staff` | browsers | The two pages, with clinic facts filled in from config |
+
+### How one chat request flows
+```mermaid
+sequenceDiagram
+    participant P as Chat page
+    participant A as FastAPI /v1/chat
+    participant G as LangGraph (thread pool)
+    participant DB as Postgres
+    P->>A: POST {message, thread_id}
+    A-->>P: event: status "thinking"
+    A->>A: rate limit check (no LLM if over)
+    A->>A: staff.expire (timeouts, lazily)
+    A->>G: graph.invoke(new_turn)
+    G->>DB: checkpoint state
+    G-->>A: verified reply
+    A->>DB: log_turn (redacted) + review candidate
+    A-->>P: event: answer × n (8 words each)
+    A-->>P: event: done {thread_id, message_id, citations, behavior}
+```
+
+### Key code
+
+**1. The turn runner: never leave the patient hanging** (`main.py:107`)
+```python
+limit = request.app.state.limiter.check(thread_id, ip)
+if limit:                                   # before any LLM call
+    return ChatOut(..., behavior="abstain", answer=cfg["rate_limit_answer"])
+...
+try:
+    out = await run_in_threadpool(request.app.state.graph.invoke, turn, cfg)
+except Exception as e:                      # provider outage, quota, DB error
+    log.error("chat.failed", thread_id=thread_id, error=type(e).__name__)
+    return ChatOut(..., behavior="abstain", answer=cfg["error_answer"])
+...
+try:
+    message_id = await run_in_threadpool(turns.log_turn, thread_id, body.message, out, pending)
+except Exception as e:                      # logging must not break the reply
+    log.error("turn.log_failed", ...)
+```
+- Three layers of graceful degradation: **over the limit**, **LLM/DB failure** and **logging
+  failure** each still give the patient a useful reply. `error_answer` and `rate_limit_answer`
+  always include reception's number **and the emergency route**, because at that point the bot
+  doesn't know whether the message was an emergency.
+- Only the exception **type** is logged, never its message (an error text can contain user
+  input or secrets, such as a key echoed back in an HTTP error).
+- The graph is synchronous (psycopg, SDK calls), so it runs in a thread pool to keep the async
+  server responsive. The checkpointer uses a **connection pool** (`main.py:56`, `max_size=10`)
+  so concurrent requests don't share one connection.
+
+**2. Streaming after verification** (`main.py:175`)
+```python
+async def events():
+    yield {"event": "status", "data": json.dumps({"status": "thinking"})}
+    result = await _run_turn(request, body)            # includes verification
+    words = result.answer.split(" ")
+    for i in range(0, len(words), 8):                 # verified answer, in small chunks
+        yield {"event": "answer", "data": json.dumps({"text": " ".join(words[i : i + 8])})}
+    yield {"event": "done", "data": result.model_dump_json(exclude={"answer"})}
+```
+The status event shows "thinking" at once; the text arrives only after the verifier passed.
+This is a deliberate trade: a longer wait for the first word, in exchange for never showing a
+sentence that's then withdrawn. The page reads the stream with `fetch` + `getReader()`
+(`index.html:329`), not `EventSource`, because `EventSource` only supports GET and this is a
+POST with a JSON body. The page writes text with `textContent`, never `innerHTML`, so a reply
+can't inject HTML.
+
+**3. Logging with contact details masked** (`turns.py:16-28`)
+```python
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+_PHONE = re.compile(r"(?<![\w-])\+?\d[\d\s-]{8,}\d(?![\w-])")
+
+def redact(text):
+    keep = {_digits(v) for v in _clinic_numbers()}      # the clinic's own numbers stay
+    def phone(m): return m.group(0) if _digits(m.group(0)) in keep else "[phone]"
+    return _PHONE.sub(phone, _EMAIL.sub("[email]", text))
+```
+Real output:
+```
+"I am Test Patient, call me on +91 90000 00000 or mail test.patient@example.com"
+  → "I am Test Patient, call me on [phone] or mail [email]"
+"Reception is +91-20-5550-0140; my number is 9000000000"
+  → "Reception is +91-20-5550-0140; my number is [phone]"
+```
+Every stored message, staff reply, feedback comment and review candidate goes through
+`redact`. The **only** place a patient's phone number is stored is the `leads` row, and only
+after consent (Lesson 5). Each assistant message also stores its grounding data: retrieved ids,
+citations, verifier result (claims, supported, `fallback_reason`, `repaired`), latency, tokens
+(`turns.py:67-92`).
+
+**4. Review candidates: the feedback loop starts here** (`turns.py:94-111`, `:161`)
+```python
+if reply.get("fallback_reason"):   source = "citation_failed"
+elif behavior == "abstain":        source = "abstained"
+elif reply.get("handoff_started"): source = "handoff"
+```
+plus `thumbs_down` from `save_feedback`. Each candidate stores the question, the bot's reply and
+the retrieved ids, which is what the review tool (Lesson 9) shows the owner. Golden 0.7.0
+added 3 cases from these real conversations.
+
+**5. Staff chats: state changed from outside the graph** (`staff.py:88-127`)
+```python
+graph.update_state(_cfg(thread_id),
+    {"messages": [Turn(role="human_agent", content=text)], "staff_waiting_since": None},
+    as_node="staff")
+```
+A staff reply isn't a graph run: it's written straight into the checkpointed state, as if the
+`staff` node had produced it, and mirrored into `messages` so the patient's page can poll for
+it. `end()` sets `handoff_pending = False` and posts a "you're back with the assistant"
+message.
+
+**6. Timeouts without a background job** (`staff.py:130`)
+`expire()` ends a staff chat if the patient waited 180 s without a staff reply, the patient's
+page has been gone 300 s, or every staff page went offline. It's called whenever the patient
+writes or polls and whenever staff refresh their list (`main.py:124`, `:202`, `:236`). No
+scheduler or worker to run on a free host: the check happens when someone looks.
+
+**7. Presence in memory** (`staff.py:31`)
+Each staff page polls every 5 s (with its own session id); staff count as online for 90 s
+after the last poll, because browsers slow timers in background tabs. Patients are online
+(visible tab polled < 20 s ago), away (hidden tab < 90 s) or left. Visible and hidden tabs are
+tracked separately so a duplicated background tab doesn't make an active patient look away.
+After a restart, `staff_gone()` returns False until a staff page checks in, so open chats aren't
+closed just because the server forgot who was there.
+
+**8. Rate limits** (`ratelimit.py:28`)
+```python
+for rule, (limit, window) in self.rules.items():   # chat/minute 10, chat/day 60, ip/day 100
+    hits = self._hits[keys[rule]]
+    while hits and hits[0] <= now - DAY:
+        hits.popleft()
+    if sum(1 for t in hits if t > now - window) >= limit:
+        return rule                                  # blocked messages are not counted
+self._hits[("chat", thread_id)].append(now)
+self._hits[("ip", ip)].append(now)
+```
+A sliding window of timestamps per chat and per IP, behind a lock (requests run in threads).
+The per-IP limit stops "open a new chat to reset the counter". Idle keys are dropped once
+there are more than 10,000. `client_ip` takes the first `X-Forwarded-For` entry, which Render's
+proxy sets.
+
+**9. Admin security** (`main.py:98`)
+```python
+if expected in DEFAULT_ADMIN_KEYS:            # "" or "change-me"
+    raise HTTPException(503, "admin endpoints disabled: ADMIN_API_KEY is not configured")
+if not secrets.compare_digest(x_admin_key, expected):
+    raise HTTPException(401, "invalid admin key")
+```
+Admin endpoints are **off** until a real key is set, so a forgotten default can't expose leads.
+`compare_digest` takes the same time whether the first or last character is wrong (no timing
+attack). The staff page keeps the key in `sessionStorage` (gone when the tab closes).
+Patient endpoints use the random `thread_id` as the capability to read that chat;
+`THREAD_ID` and `ChatIn` restrict it to `[\w.:-]{1,100}`, and messages to 2,000 characters.
+
+### Real run
+Local server, `curl -N -X POST localhost:8011/v1/chat -d '{"message":"hi","thread_id":"guide-demo-1"}'`:
+```
+event: status   data: {"status": "thinking"}
+event: answer   data: {"text": "Hello! I'm the BrightSmile Dental Care assistant. I"}
+event: answer   data: {"text": "can help with our services, prices, appointments, insurance,"}
+...
+event: done     data: {"thread_id":"guide-demo-1","message_id":1868,"intent":"greeting","behavior":"answer",...}
+```
+`GET /v1/health` → `{"status":"ok","chunks":234,"kb_version":"08a3673838d7"}`; an empty message
+→ 422 `string_too_short`; `GET /v1/leads` without a key → 401 `invalid admin key`.
+
+### Why it's built this way
+- **FastAPI**: async, Pydantic validation on every input, OpenAPI docs for free, and simple
+  dependency-based auth.
+- **SSE over WebSockets**: replies go one way (server → page), SSE works over plain HTTP through
+  any proxy, and polling covers the rare staff messages. No connection state to manage.
+- **Plain HTML pages** served by the same app: no build step, no separate frontend deploy, one
+  Docker image.
+- **Lazy timeouts and in-memory presence**: right for one free instance; no Redis, no worker.
+- **Rate limits in config** (`generation.yaml`): the numbers come from the free quota (~200k
+  tokens/day per model ≈ 40 answered questions), so one visitor can use at most a fraction of it.
+
+### Limits and gotchas
+- **One instance only.** Presence and rate-limit counters live in process memory; two instances
+  would each count separately and disagree on who is online. Scaling out means moving them to
+  Postgres or Redis.
+- **Rate limits can be dodged** by a script that fakes `X-Forwarded-For` and opens new chats.
+  They stop accidental heavy use and simple scripts, not a determined attacker.
+- **CORS allows any origin** (`allow_origins=["*"]`), so another site could embed calls to the
+  chat API and spend the quota (within the rate limits).
+- The first word appears only after the whole pipeline finishes (~5–10 s for a real question,
+  ~1 s for a greeting); on the free host a cold start adds 30–50 s (the page says it's waking up).
+- Staff messages arrive by polling (up to 5 s late).
+- The thread id is the only protection for reading a chat's history; it's random per browser
+  tab, but anyone holding it can read that chat.
+
+### Interview questions
+1. **"Why stream only after verification? Isn't that slower?"** Yes, the first word comes later.
+   But a token stream would show sentences the verifier might reject, and in a clinic a wrong
+   price that flashes on screen is still a wrong price. The status event keeps the page
+   responsive.
+2. **"How do you protect personal data?"** Contacts are regex-masked in every log, message,
+   feedback and review record (clinic numbers kept); the only unmasked copy is the lead, saved
+   after recorded consent and hard-deletable from the staff page; errors log the exception type
+   only.
+3. **"What happens when the LLM provider is down?"** The exception is caught, and the patient
+   gets a fixed message with reception's number and the emergency route. No 500, no blank
+   screen; a test covers it (`test_provider_failure_returns_fallback_not_500`).
+4. **"How would you scale this to many users?"** Paid LLM tier first (quota is the real limit),
+   then several instances behind a load balancer, with presence and rate limits moved from
+   memory to Redis/Postgres. The graph state is already in Postgres, so any instance can serve
+   any chat.
+5. **"How do staff take over a chat without breaking the graph?"** `graph.update_state(...,
+   as_node="staff")` writes their message and flags into the checkpointed state; the routing
+   rule sends patient messages to `staff` (silent) until staff end it or it times out.
+
+### Try it yourself
+```bash
+make serve                                         # http://localhost:8000 and /staff
+curl -N -X POST localhost:8000/v1/chat -H "Content-Type: application/json" \
+     -d '{"message":"hi","thread_id":"demo-1"}'     # watch the SSE events
+uv run pytest tests/test_api.py tests/test_ratelimit.py -q
 ```
