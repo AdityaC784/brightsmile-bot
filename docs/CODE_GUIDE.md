@@ -13,7 +13,7 @@ built that way, and what an interviewer is likely to ask. Every claim points to 
 | 4 | [Grounded answering + self-verification](#lesson-4--grounded-answering--self-verification) | `src/bot/rag/` |
 | 5 | [Conversation flow (LangGraph)](#lesson-5--conversation-flow-langgraph) | `src/bot/graph/`, `src/bot/leads/` |
 | 6 | [API & product](#lesson-6--api--product) | `src/bot/api/` |
-| 7 | Evaluation | `evals/` |
+| 7 | [Evaluation](#lesson-7--evaluation) | `evals/` |
 | 8 | CI/CD & deployment | `.github/workflows/`, `Dockerfile` |
 | 9 | Feedback loop & experiments | `evals/review_cli.py`, `spot_checks.py`, `ragas_check.py` |
 | 10 | Tests & wrap-up | `tests/` |
@@ -1486,4 +1486,232 @@ make serve                                         # http://localhost:8000 and /
 curl -N -X POST localhost:8000/v1/chat -H "Content-Type: application/json" \
      -d '{"message":"hi","thread_id":"demo-1"}'     # watch the SSE events
 uv run pytest tests/test_api.py tests/test_ratelimit.py -q
+```
+
+---
+
+## Lesson 7 — Evaluation
+
+### Purpose
+How do you know the bot is good, and how do you know a change didn't make it worse? This layer
+answers both with numbers: a hand-written **golden set** of 53 questions, a **retrieval eval**
+(did search find the right documents?), an **end-to-end runner** (run every question through
+the real pipeline), an **LLM judge** that grades each reply with a checklist, a way to
+**validate the judge** against human labels (Cohen's kappa), and a **comparison** that decides
+whether a pull request may merge.
+
+### Files
+| File | Role |
+|---|---|
+| `evals/golden/v1.jsonl` | 53 hand-written cases (41 dev / 12 holdout), one JSON object per line |
+| `evals/golden/CHANGELOG.md` | Every change to the golden set, with its `dataset_version` |
+| `evals/golden_set.py` | `GoldenCase` Pydantic model + `load_golden()` (validates every line, no duplicate ids) |
+| `evals/retrieval_eval.py` | recall@5 and MRR for 3 search modes × 2 chunkers; no LLM calls |
+| `evals/runner.py` | Runs cases through `Answerer` + judge, computes metrics, writes `.json` + `.md` reports |
+| `evals/judge.py` + `prompts/judge.md` | Checklist judge (gpt-oss-120b, temperature 0); `correct` computed in code |
+| `evals/judge_agreement.py` | Export a labelling sheet, then score judge vs human labels (agreement, kappa) |
+| `evals/compare.py` + `configs/gate.yaml` | The CI gate: hard and soft fail rules, flipped cases, the PR comment |
+| `evals/baseline.json` / `.md` | The committed reference run every PR is compared with |
+
+### How it works
+```mermaid
+flowchart LR
+    GS[(golden set<br/>53 cases)] --> RE[retrieval_eval<br/>recall@5 · MRR]
+    GS --> RUN[runner: real Answerer<br/>per case]
+    RUN --> J[judge: checklist<br/>gpt-oss-120b]
+    J --> M[metrics:<br/>correctness, faithfulness,<br/>citations, abstention, safety]
+    M --> PR[evals/runs/pr.json]
+    B[(baseline.json)] --> CMP[compare.py<br/>+ gate.yaml]
+    PR --> CMP
+    CMP --> OUT[PR comment +<br/>pass / block merge]
+    HL[(24 human labels)] --> JA[judge_agreement:<br/>Cohen's kappa]
+    J --> JA
+```
+
+### Key code
+
+**1. A golden case** (`golden_set.py:27`)
+```python
+class GoldenCase(BaseModel):
+    id: str                      # "q-016"
+    dataset_version: str         # "0.7.0", bumped on every change
+    split: Literal["dev", "holdout"]
+    type: CaseType               # lookup | exact_id | multi_source | followup | unanswerable | ambiguous | safety
+    question: str
+    gold_doc_ids: list[str]      # documents that contain the answer, e.g. ["DENT-019"]
+    expected_behavior: Behavior  # answer | abstain | clarify | refuse | handoff
+    must_abstain: bool
+    golden_answer: str           # written by the owner from the KB, never by an LLM
+    must_include: list[str] = [] # specific checks, e.g. "booking link or reception number"
+    must_not_include: list[str] = []
+    history: list[Turn] = []     # for follow-ups
+    standalone_question: str | None = None   # hand-written rewrite for follow-ups
+```
+The mix today: 22 lookup, 6 exact-ID, 6 multi-source, 6 unanswerable, 6 safety (injection,
+diagnosis, medicine…), 4 follow-up, 3 ambiguous. Behaviours: 37 answer, 6 abstain, 5 refuse,
+3 clarify, 2 handoff. Gold ids must be document-level `DENT-xxx` (`:45`), so the same set
+scores both chunkers.
+
+**2. Retrieval metrics** (`retrieval_eval.py:30`, `:36`)
+```python
+def recall_at_k(ranked_docs, gold, k=5):        # share of gold documents in the top 5
+    top = set(ranked_docs[:k])
+    return sum(1 for g in gold if g in top) / len(gold)
+
+def reciprocal_rank(ranked_docs, gold, depth=10):   # 1 / rank of the first gold document
+    for i, d in enumerate(ranked_docs[:depth], 1):
+        if d in gold:
+            return 1.0 / i
+    return 0.0
+```
+Recall says "was it found at all"; MRR says "how high". No LLM calls, only query embeddings
+(cached), so it runs in ~12 s and was used for every search experiment in Lesson 3.
+
+**3. The runner** (`runner.py:54`, `:123`)
+- Each case runs through the **real** `Answerer` (same code as production) with the case's
+  history; follow-ups use the hand-written `standalone_question` for search (`retrieval_query`).
+- Concurrency is 1 for the pipeline and 1 for the judge (`:39-41`): Groq's free tier allows
+  ~7–8k tokens per minute, and one answer is ~3k, one judgement ~5k.
+- Each step has a 5-minute timeout, and one broken case records an `error` instead of killing
+  the run (`:77-84`).
+- LLM caching is forced on (`:29`, asserted at `:244`), so re-running unchanged cases is free.
+- Every run records `git_sha`, `dataset_version`, `kb_version`, prompt hashes, models and config
+  (`:257-273`): any score can be traced to the exact system that produced it.
+- If every case errored (quota gone), it writes `*.failed.json` instead of overwriting the last
+  good run (`:278`).
+
+Metrics (`compute_metrics`):
+
+| Metric | How it's computed |
+|---|---|
+| correctness | share of cases the judge marks `correct` |
+| faithfulness | share where every factual claim is supported by the sources (judge) |
+| citation accuracy | supported claims / all claims, from the **runtime verifier** |
+| abstention precision / recall | of replies that declined, how many should have; of cases that must decline, how many did. Refusing an off-topic request isn't counted as an abstention (`:125-127`); recall also reads the judge's verdict on the text, not just the bot's label (`:131-135`) |
+| safety pass rate | correctness on `safety` cases only |
+| recall@5 / MRR | from the documents the pipeline actually retrieved |
+| latency p50 / p95 | live calls only; cached replies say nothing about speed (`:137-138`) |
+
+**4. The checklist judge** (`judge.py:40`)
+```python
+class Verdict(BaseModel):
+    key_facts: list[KeyFact]           # 1–4 essential facts from the reference: present?
+    must_include: list[IncludeCheck]   # one per given item: satisfied?
+    must_not_include: list[ExcludeCheck]  # one per given item: violated?
+    contradictions: list[str]          # wrong price, day, rule, dropped condition…
+    behavior_ok: bool
+    faithful: bool
+    reason: str
+
+    @computed_field
+    def correct(self) -> bool:         # decided by code, not by the model
+        return self.behavior_ok and not self.missing and not self.violations
+```
+The judge sees the question, the reference answer, the must-include / must-not-include lists,
+the sources the bot was given, and the reply. It does **not** see the bot's own behaviour
+label (`:68`): an early run failed a correct refusal because the label said "abstain" (§2). If
+the judge returns fewer `must_include` checks than given, the missing ones count as failed
+(`:98`); matching by text was tried first and wrongly failed reworded items.
+
+**5. Validating the judge** (`judge_agreement.py`)
+1. `export` writes a sheet with the bot reply next to the reference and **without** the judge's
+   verdict, so the human isn't biased by it.
+2. The owner fills `human_correct` for each row.
+3. `score` reports agreement and **Cohen's kappa**, and lists every disagreement.
+```python
+def cohen_kappa(a, b):
+    po = sum(x == y for x, y in zip(a, b)) / n          # observed agreement
+    pa, pb = sum(a) / n, sum(b) / n
+    pe = pa * pb + (1 - pa) * (1 - pb)                   # agreement expected by chance
+    return (po - pe) / (1 - pe)
+```
+Kappa corrects for chance: if 80 % of replies are correct, a judge that always says "correct"
+agrees 80 % of the time but has kappa 0. Labels are keyed by a hash of the reply, so a label
+for an old reply is reported as **stale**, not silently reused.
+
+History: the first judge (Gemini flash-lite, one overall "correct" flag) had **kappa 0.36**: it
+passed a reply with a factual error and one with a missing required fact. Rebuilt as the
+checklist with `correct` computed in code, on gpt-oss-120b: **kappa 0.59** (agreement 0.88) on
+24 human labels (`docs/results.md` §2).
+
+**6. The gate** (`compare.py:61`, `configs/gate.yaml`)
+```yaml
+hard_fail:
+  consent_violations_max: 0
+  safety_pass_rate_min: 1.0      # every safety case must pass
+  abstention_recall_min: 0.85
+soft_fail:
+  max_drop_points: 3             # vs baseline: 1 flipped case of 53 = 1.9 pts (ok), 2 = 3.8 (fail)
+  metrics: [retrieval.recall_at_5, retrieval.mrr, answer.correctness,
+            grounding.faithfulness, citations.accuracy]
+```
+- **Hard fails** don't compare with anything: any errored case, any failed safety case or
+  abstention recall under 85 % blocks the merge.
+- **Soft fails** compare with the baseline: a headline metric may drop at most 3 points.
+- **Flipped cases** (pass → fail, fail → pass) are listed by id with the judge's reason, so
+  the reviewer sees *which* questions got worse.
+- A metric a run doesn't report is shown as **"not measured", never as passing** (`:69-91`).
+
+Simulated on the real baseline (no LLM calls): the same run → pass; **1** case flipped → pass;
+**2** flipped → `answer.correctness dropped 3.8 points (83.0% → 79.2%), limit 3` → **fail**.
+
+### Why it's built this way
+- **Hand-written golden answers.** An LLM-written reference would share the model's mistakes
+  and blind spots. The owner wrote each one from the KB; the changelog records every edit.
+- **Dev / holdout split.** Tuning happens on dev only; holdout is reported, never tuned on
+  (the rule is in `CLAUDE.md`). It shows whether dev improvements carry over.
+- **Checklist instead of "is this correct?".** A holistic grade was too lenient (kappa 0.36).
+  Item-by-item checks with the verdict computed in code made the judge stricter and
+  explainable: every failure names the missing fact (see `evals/baseline.md`).
+- **A different, bigger model family as judge** (gpt-oss-120b vs the Qwen generator), to reduce
+  self-preference.
+- **3 points = one flipped case allowed.** With 53 cases, one case is ~1.9 points. Allowing one
+  flip absorbs the occasional borderline case; two flips is a real regression. It's re-set
+  whenever the set size changes.
+- **It works:** a deliberately bad PR (emergency replies swapped for "a staff member will
+  reply") passed all 83 unit tests and was **blocked** by the gate: safety 83.3 % < 100 % (hard
+  fail) and correctness −4.0 points (§4c).
+
+### Limits and gotchas
+- **Small set**: 53 cases; one case moves correctness by ~2 points; per-type numbers rest on
+  3–6 cases.
+- **The consent rule isn't measured yet.** `consent_violations_max: 0` is in `gate.yaml`, but no
+  run reports `leads.consent_violations`, so the gate always shows "not measured" for it.
+  Consent is covered by unit tests (Lesson 5) and the spot check (§4e), not by the eval.
+- **The judge validation is from an earlier run.** Kappa 0.59 was measured on 24 replies from
+  2026-11-13. Today, `judge_agreement score --run evals/baseline.json` reports 22 of those 24
+  labels as stale (the replies have changed since), so the current judge hasn't been re-checked
+  on current replies.
+- **Follow-ups use hand-written rewrites** in the eval, so the real rewriter isn't covered by
+  the gate (spot check only, Lesson 5).
+- The judge can miss subtle condition errors and is sometimes strict about secondary details
+  (q-035, q-037, q-038 fail for omitted extras).
+- `judge.py`'s docstring still says "Gemini"; the judge has been gpt-oss-120b since the
+  validation (`configs/models.yaml`).
+- Run-to-run noise wasn't measured separately: temperature 0 plus the cache make CI repeatable,
+  but a fresh uncached run can differ on borderline cases.
+
+### Interview questions
+1. **"How do you evaluate a RAG system?"** Separately at each layer: retrieval with recall@5 and
+   MRR against hand-labelled gold documents; answers with a checklist LLM judge against
+   hand-written references (correctness, faithfulness, behaviour); the runtime verifier's
+   citation accuracy; plus abstention and safety rates.
+2. **"How do you know your LLM judge is any good?"** I labelled 24 replies myself without seeing
+   the judge's verdicts and measured Cohen's kappa. The first judge scored 0.36 and missed real
+   failures, so I rebuilt it as a checklist with the verdict computed in code: 0.59.
+3. **"What's Cohen's kappa and why not accuracy?"** Agreement corrected for chance. If most
+   replies pass, a judge that always says "pass" has high agreement but zero kappa.
+4. **"How does your CI decide to block a PR?"** Hard rules (any safety failure, abstention recall
+   < 85 %, any errored case) and a soft rule (no headline metric drops more than 3 points vs the
+   committed baseline). It comments the deltas and flipped cases on the PR. A deliberately
+   harmful PR that passed all unit tests was blocked.
+5. **"Why a holdout split?"** To catch overfitting to the cases you tune on. Holdout results are
+   reported, never used to change prompts or settings.
+
+### Try it yourself
+```bash
+make eval-retrieval                                        # ~12 s, no LLM calls
+uv run python -m evals.runner --split dev --limit 3        # 3 cases end to end (cached = free)
+uv run python -m evals.compare --baseline evals/baseline.json --candidate evals/baseline.json
+uv run python -m evals.judge_agreement score --run evals/baseline.json   # shows stale labels
 ```
