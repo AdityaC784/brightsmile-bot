@@ -8,7 +8,7 @@ built that way, and what an interviewer is likely to ask. Every claim points to 
 |---|---|---|
 | 0 | [Big picture](#lesson-0--big-picture) | `configs/`, `Makefile` |
 | 1 | [Config & LLM layer](#lesson-1--config--llm-layer) | `src/bot/config.py`, `src/bot/llm/` |
-| 2 | Knowledge-base ingestion | `src/bot/retrieval/loaders.py`, `chunking.py`, `ingest.py`, `src/bot/db/` |
+| 2 | [Knowledge-base ingestion](#lesson-2--knowledge-base-ingestion) | `src/bot/retrieval/loaders.py`, `chunking.py`, `ingest.py`, `src/bot/db/` |
 | 3 | Hybrid retrieval | `src/bot/retrieval/hybrid.py` |
 | 4 | Grounded answering + self-verification | `src/bot/rag/` |
 | 5 | Conversation flow (LangGraph) | `src/bot/graph/`, `src/bot/leads/` |
@@ -359,4 +359,215 @@ typed into a prompt file, and that no golden-case wording leaks into a prompt.
 ```bash
 uv run python -m bot.llm.check_models   # is every role's model live? one tiny real call each
 uv run pytest tests/test_llm_and_retrieval.py -q -k "cache or json or retry or quota"
+```
+
+---
+
+## Lesson 2 — Knowledge-base ingestion
+
+### Purpose
+Turns the clinic's 36 documents (11 PDF, 10 DOCX, 10 Markdown, 5 CSV) into **searchable chunks
+in Postgres**: each chunk gets its text, a citation id, a vector embedding and a full-text index.
+This runs offline (`make ingest`), not on each chat. Answer quality is capped by this step: if a
+price is split badly or a table row loses its header, no prompt can fix it later.
+
+### Files
+| File | Role |
+|---|---|
+| `data/kb/manifest.json` | One entry per document: `doc_id`, `filename`, `title`, `category`, `status` (active / archived), version, date |
+| `src/bot/retrieval/loaders.py` | One loader per format → a common list of `Block`s (heading / text / table / row) |
+| `src/bot/retrieval/chunking.py` | Two chunkers: `heading` (follows document structure, used live) and `fixed` (token windows, the baseline) |
+| `src/bot/retrieval/ingest.py` | Load → chunk → embed → replace the `chunks` rows in one transaction; computes `kb_version` |
+| `src/bot/db/migrate.py` | A 40-line forward-only migration runner |
+| `src/bot/db/migrations/001_init.sql` | The whole schema: chunks, conversations, messages, leads, feedback, candidates, eval tables |
+| `configs/retrieval.yaml` | Chunk sizes and which chunker search uses |
+
+### How it works
+```mermaid
+flowchart LR
+    M[manifest.json] --> L
+    F[PDF · DOCX · MD · CSV] --> L[loaders.py<br/>→ Blocks]
+    L --> CH[chunking.py<br/>heading + fixed]
+    CH --> E[embeddings.py<br/>Gemini 768-d, cached]
+    E --> DB[(Postgres chunks:<br/>GIN full-text index<br/>+ HNSW vector index)]
+    CH --> V[kb_version hash]
+    V --> DB
+```
+
+Result today: **415 chunks** (234 heading + 181 fixed), `kb_version 08a3673838d7`.
+
+### Key code
+
+**1. One shape for every format** (`loaders.py:27`)
+```python
+@dataclass
+class Block:
+    kind: BlockKind          # "heading" | "text" | "table" | "row"
+    text: str = ""
+    level: int = 0           # heading level
+    rows: list[str] = ...    # table rows, already rendered
+    key: str = ""            # CSV first column, used as the citation anchor
+```
+Each loader returns `Block`s in reading order, so the chunkers don't care about file formats.
+Dispatch is a dict by extension (`:320`).
+
+**2. Tables: every row stands on its own** (`loaders.py:77`)
+```python
+def render_rows(header, rows):
+    ...
+    parts.append(f"{h}: {c}" if h else c)
+    out.append("; ".join(parts))
+```
+A tariff row becomes `Service ID: SRV-005A; Service Description: Molar Root Canal…; Fee: …`.
+Without this, a chunk holding the middle of a table would have numbers with no column names,
+and neither search nor the model could tell what ₹6,800 is.
+
+**3. Format-specific problems the loaders solve**
+| Format | Problem | Fix |
+|---|---|---|
+| PDF | No real structure, only text with font sizes | Bold lines ≥ 12.5 pt are headings, ≥ 17 pt is the title (`:187-189`, `:267`); lines ≤ 9 pt are footers and are dropped (`:241`); the repeated page header is removed by regex (`:190`) |
+| PDF | Table text is extracted twice (as a table and as lines) | Lines whose centre falls inside a table's box are skipped (`:236`) |
+| PDF | A table continues on the next page without its header | Same column count, near the top of the page → reuse the previous header (`:221-229`) |
+| PDF | IDs wrapped at line end: `SRV-` / `005A` | `_WRAPPED_HYPHEN` re-joins them (`:51`); a test checks that no service ID in the KB is broken |
+| PDF | A "Metadata field" table on the first page | Skipped (`:193`); it's document metadata, not content |
+| DOCX | python-docx repeats merged cells | Adjacent duplicates are collapsed (`:179`); heading levels come from the `Heading N` style |
+| Markdown | Front matter, `**bold**`, links, table separator rows | `python-frontmatter`, `strip_md_inline` (`:64`), separator rows dropped (`:114`) |
+| CSV | Byte-order mark, snake_case headers | `utf-8-sig`, `humanize()` → "refund rule id"; **one `row` block per data row** keyed by the first column (`:304`) |
+
+**4. The heading chunker** (`chunking.py:107`)
+1. `_sections()` (`:85`) groups blocks under their nearest heading and keeps the **heading path**
+   (a stack: a level-2 heading pops anything at level ≥ 2). The document's own title heading is
+   skipped because it's already stored in the `title` column.
+2. Sections under 40 tokens are **merged forward** into the next one (`:128-149`), so there's no
+   chunk that is just a heading and one line.
+3. Sections over 450 tokens are **split at line boundaries** (paragraph or table row, never in
+   the middle of a row) (`:156-165`). Each part repeats the heading at its top.
+4. CSV documents: **one chunk per row** (`:112`), with id `DENT-024#REF-03`.
+
+Citation ids are stable and readable: `doc_id#slug-of-heading`, with `-2`, `-3` added to keep
+them unique (`_unique`, `:50`). For example:
+```
+DENT-019#2-master-2026-service-tariff-table-all-rates-in      444 tokens
+DENT-019#2-master-2026-service-tariff-table-all-rates-in-2    424 tokens  (SRV-005A …)
+DENT-024#REF-03                                               104 tokens  (one CSV row)
+```
+Token counts are approximate (`\w+|[^\w\s]` pieces, `:17`). That's enough for sizing chunks, and
+it avoids loading a tokenizer that matches neither model exactly.
+
+**5. The fixed chunker, kept as a baseline** (`chunking.py:186`): 300-token windows with a
+50-token overlap over the flattened text. Both chunkers are always indexed (`ingest.py:298`), in
+the same table with a `chunker` column, so the chunking experiment switches with one config
+value (`retrieval.yaml: chunking.strategy`) and no re-ingest.
+
+**6. What gets embedded** (`ingest.py:269`)
+```python
+def embedding_text(c: Chunk, status: str) -> str:
+    flag = "[ARCHIVED — superseded, not current]\n" if status == "archived" else ""
+    return f"{flag}{c.title}\n{c.section}\n{c.content}".strip()
+```
+The title and section path are added before the content, so a chunk that only says "₹6,800"
+still carries "2026 Service Tariff" in its vector. The archived 2025 price list is marked in its
+embedding text too.
+
+**7. `kb_version`: one hash for everything that shapes the index** (`ingest.py:275`)
+```python
+h.update(json.dumps(manifest, sort_keys=True).encode())
+for name in sorted(files):
+    h.update(name.encode()); h.update(files[name].read_bytes())
+h.update(json.dumps(load_yaml("retrieval")["chunking"], sort_keys=True).encode())
+h.update(json.dumps(load_yaml("models")["embeddings"], sort_keys=True).encode())
+```
+Every chunk row stores it, `/v1/health` reports it, and every eval run records it. A score
+is always tied to an exact KB, chunking settings and embedding model.
+
+**8. Replace, atomically** (`ingest.py:312`)
+```python
+with conn.transaction():
+    conn.execute("DELETE FROM chunks WHERE tenant_id = %s", (settings.tenant_id,))
+    cur.executemany("INSERT INTO chunks (...) VALUES (...)", rows)
+conn.execute("ANALYZE chunks")
+```
+Delete-and-insert inside one transaction: a chat running during re-ingestion sees either the old
+index or the new one, never half of each. Re-running is idempotent, and because embeddings are
+cached (Lesson 1) an unchanged KB costs zero API calls.
+
+**9. The schema** (`migrations/001_init.sql:9`)
+```sql
+CREATE TABLE chunks (
+    doc_id TEXT NOT NULL,            -- citation anchor 'DENT-019#root-canal'
+    source_doc_id TEXT NOT NULL,     -- 'DENT-019'
+    status TEXT CHECK (status IN ('active','archived')),
+    chunker TEXT CHECK (chunker IN ('heading','fixed')),
+    embedding vector(768),
+    fts tsvector GENERATED ALWAYS AS (
+        setweight(to_tsvector('english', title || ' ' || section), 'A') ||
+        setweight(to_tsvector('english', content), 'B')) STORED,
+    UNIQUE (tenant_id, chunker, doc_id) ...);
+CREATE INDEX chunks_fts_idx       ON chunks USING GIN (fts);
+CREATE INDEX chunks_embedding_idx ON chunks USING hnsw (embedding vector_cosine_ops);
+```
+- `fts` is a **generated column**: Postgres keeps the full-text vector in sync automatically.
+  Title and section words get weight A (they count more than body words, weight B).
+- **GIN** indexes the full-text vector; **HNSW** (pgvector) is an approximate nearest-neighbour
+  index for cosine distance.
+- The same file creates `conversations`, `messages`, `leads` (with `consent_at` and
+  `consent_text NOT NULL`, and `thread_id UNIQUE` so saving a lead twice is harmless),
+  `feedback`, `candidates` (the review queue) and `eval_runs`. LangGraph's checkpointer creates
+  its own tables at startup.
+- `tenant_id` is on every chunk: one database could hold several clinics.
+
+**10. Migrations** (`migrate.py:371`): a `schema_migrations` table records applied files;
+each new `NNN_*.sql` runs once, in its own transaction, in name order. The Docker container runs
+it on every start, so a deploy brings Neon's schema up to date.
+
+### Why it's built this way
+- **Heading chunks beat fixed windows in every search mode** (dev recall@5 / MRR, hybrid
+  0.76 / 0.78 vs 0.74 / 0.72; dense 0.88 / 0.80 vs 0.79 / 0.71; `docs/results.md` §1). A
+  section is one topic, which is what a patient question is about.
+- **One chunk per CSV row** gives exact citations (`DENT-024#REF-03`) and lets reference
+  expansion fetch a row by its code (Lesson 3).
+- **Measured and rejected:** one chunk per row for every large table (e.g. the tariff) looked
+  right but lowered MRR (0.78 → 0.68) without fixing the target cases (§1b). It was removed in
+  the "removed over-built code" commit (`audit.md` timeline).
+- **Postgres for everything** (chunks, vectors, full text, chats, leads) instead of a separate
+  vector database: one service to run (Neon's free tier), real transactions, and hybrid search
+  in a single SQL query.
+- **Raw SQL migrations instead of Alembic/an ORM**: one schema file, readable as is, and the
+  search query needs pgvector and `tsvector` SQL anyway.
+
+### Limits and gotchas
+- The PDF heading rules (font size, bold) fit these documents; PDFs from another source would
+  need re-tuning. Scanned PDFs (images) would need OCR.
+- `kb_version` hashes file bytes, so Windows (CRLF) and Linux (LF) line endings give different
+  versions for the same content (seen between local and Neon).
+- The full tariff table is still split into three ~440-token chunks of 6–9 services each, so a
+  single-service price question can match a service page before the tariff (§1, failure
+  pattern 1). Weighted RRF (Lesson 3) handles most of this.
+- Re-ingesting deletes and rewrites every chunk. That's fine for 415 chunks; a big KB would need
+  incremental updates by `content_hash` (the column already exists).
+
+### Interview questions
+1. **"How did you choose your chunking strategy?"** By measurement: both chunkers are indexed
+   side by side, and the retrieval eval compared them on hand-labelled gold documents. Heading
+   chunks won in every mode. Per-row chunking for large tables was tried and rejected because MRR
+   dropped.
+2. **"How do you handle tables in RAG?"** Render every row as `Header: value; Header: value` so
+   it makes sense on its own, never split a chunk in the middle of a row, and repeat the
+   section heading at the top of each part. Each CSV row is its own chunk.
+3. **"How do you know which KB version an answer or score came from?"** `kb_version`: a hash of
+   the manifest, every file's bytes, the chunking settings and the embedding settings, stored on
+   every chunk and recorded with every eval run.
+4. **"Why Postgres + pgvector instead of Pinecone/Chroma?"** One database for vectors, full-text
+   search and app data. Hybrid search is one SQL query, there are transactions, and the free
+   hosting tier has pgvector. At 415 chunks a dedicated vector DB adds a service without any
+   speed benefit.
+5. **"What do you embed: the raw chunk?"** No: title + section path + content, plus an
+   "ARCHIVED" flag for superseded documents, so short chunks still carry their context.
+
+### Try it yourself
+```bash
+docker compose up -d --wait db
+uv run python -m bot.db.migrate          # "Schema up to date."
+uv run python -m bot.retrieval.ingest    # 36 documents -> {'heading': 234, 'fixed': 181}, embeddings from cache
+uv run pytest tests/test_loaders_chunking.py -q
 ```
